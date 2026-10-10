@@ -1,42 +1,58 @@
-from datetime import date, datetime
+import enum
+import uuid
+from datetime import date
 
-from sqlalchemy import Date, DateTime, Index, String, Text, func
-from sqlalchemy.dialects.postgresql import ARRAY, JSONB
+from sqlalchemy import Boolean, Date, Enum, Index, String, Text, func, text
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.db.base import Base
 
 
+class TaskType(str, enum.Enum):
+    work = "WORK"
+    personal = "PERSONAL"
+
+
+def _uuid_pk() -> Mapped[uuid.UUID]:
+    return mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, server_default=text("gen_random_uuid()"))
+
+
+def _date_created() -> Mapped[date]:
+    return mapped_column(Date, server_default=func.current_date())
+
+
 class Task(Base):
     __tablename__ = "tasks"
-    __table_args__ = (Index("ix_tasks_due_date_status", "due_date", "status"),)
+    __table_args__ = (Index("ix_tasks_due_date_completed", "due_date", "completed"),)
 
-    id: Mapped[int] = mapped_column(primary_key=True)
+    id: Mapped[uuid.UUID] = _uuid_pk()
     title: Mapped[str] = mapped_column(String(255))
-    due_date: Mapped[date | None] = mapped_column(Date)
-    priority: Mapped[str] = mapped_column(String(16), default="medium", server_default="medium")
-    status: Mapped[str] = mapped_column(String(16), default="todo", server_default="todo")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    type: Mapped[TaskType] = mapped_column(Enum(TaskType, name="task_type", values_callable=lambda e: [m.value for m in e]))
+    requirement: Mapped[str] = mapped_column(Text, default="", server_default="")
+    due_date: Mapped[date] = mapped_column(Date)
+    completed: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    date_created: Mapped[date] = _date_created()
 
 
 class Note(Base):
     __tablename__ = "notes"
 
-    id: Mapped[int] = mapped_column(primary_key=True)
+    id: Mapped[uuid.UUID] = _uuid_pk()
     title: Mapped[str] = mapped_column(String(255))
-    body: Mapped[str] = mapped_column(Text, default="", server_default="")
-    tags: Mapped[list[str]] = mapped_column(ARRAY(Text), default=list, server_default="{}")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
-    )
+    # Ordered list of {"content": str}, mirrors NoteBlock in backend/models/note.py
+    content_blocks: Mapped[list] = mapped_column(JSONB, default=list, server_default=text("'[]'::jsonb"))
+    date_created: Mapped[date] = _date_created()
 
 
-class Briefing(Base):
-    __tablename__ = "briefings"
+class News(Base):
+    __tablename__ = "news"
+    __table_args__ = (Index("ix_news_date_created", "date_created"),)
 
-    id: Mapped[int] = mapped_column(primary_key=True)
-    date: Mapped[date] = mapped_column(Date, unique=True)
-    summary_md: Mapped[str] = mapped_column(Text)
-    sources: Mapped[list] = mapped_column(JSONB, default=list, server_default="[]")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    title: Mapped[str] = mapped_column(String(255))
+    summary: Mapped[str] = mapped_column(Text)
+    # Ordered list of {"question": str, "answer": str}, mirrors NewsQuizQuestion
+    quiz_section: Mapped[list] = mapped_column(JSONB, default=list, server_default=text("'[]'::jsonb"))
+    sources: Mapped[list[str]] = mapped_column(ARRAY(Text), default=list, server_default=text("'{}'"))
+    date_created: Mapped[date] = _date_created()

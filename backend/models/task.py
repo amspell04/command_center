@@ -13,6 +13,6 @@ class Task(BaseModel):
     title: str
     type: TaskType
     requirement: str
-    due_date: datetime.date
+    due_date: date
     completed: bool
     date_created: date

@@ -1,13 +1,19 @@
-from typing import Optional
-from langchain_ollama import ChatOllama
+from langchain_core.messages import HumanMessage, SystemMessage
 
-#lang smith?
+from backend.agents.llm import get_llm
+from backend.crud.schemas.news import NewsCreate
 
-def run_news_agent(message: Optional[str]):
-    agent = ChatOllama(
-        model="qwen3.5:2b",
-        temperature=0,
+# Keeps the prompt inside the 2B model's context window.
+MAX_INPUT_CHARS = 8000
+
+SYSTEM_PROMPT = """You write a short daily news briefing from the articles provided.
+Use only the provided text. Return a title, a markdown summary, and 3 quiz questions with answers."""
+
+
+async def summarize_news(articles: str, sources: list[str]) -> NewsCreate:
+    """Summarization only: no tools, no DB access. The caller (daily job) stores the result."""
+    llm = get_llm("news_agent").with_structured_output(NewsCreate)
+    result = await llm.ainvoke(
+        [SystemMessage(SYSTEM_PROMPT), HumanMessage(articles[:MAX_INPUT_CHARS])]
     )
-
-    response = agent.invoke(message)
-    return response.content_blocks
+    return result.model_copy(update={"sources": sources})
