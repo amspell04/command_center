@@ -1,9 +1,10 @@
 # command_center
 
-Personal dashboard: daily news briefing, tasks and notes, with local LLM agents on top. See `docs/PLAN.md` for the plan and `docs/AGENTS.md` for how the agents reach the data.
+Personal dashboard: daily news briefing, tasks and notes, with local LLM agents on top. See `docs/IMPLEMENTATION_PLAN.md` for the plan and `docs/architecture/` for how each part works (`AGENTS.md`, `DATABASE.md`, `FRONTEND.md`, `TRAINING.md`).
 
 ## Prerequisites
-- Python 3.10+, Node 20+, Docker, [Ollama](https://ollama.com) with `ollama pull qwen3.5:2b`
+- Python 3.10+, Node 20+, Docker
+- [Ollama](https://ollama.com) with `ollama pull qwen3.5:2b`, only for the manual steps below (`make up` runs Ollama in Docker)
 
 ## Setup
 ```bash
@@ -40,7 +41,7 @@ Host and port come from `MCP_HOST` / `MCP_PORT`; agents find it through `MCP_URL
 
 **4. LLM calls and agents**
 
-`backend/ai/llm/` holds plain model calls (news briefing, note summary, day plan). They need only Ollama (`ollama serve` if it is not already running) and are reached through `/api/agents/<agent>/actions/<name>` and the briefing service. `backend/ai/agents/` holds tool-calling agents, which also connect to the MCP server, so start it (step 3) first.
+`backend/ai/llm/` holds plain model calls (news briefing, note summary, day plan, week balance). They need only Ollama (`ollama serve` if it is not already running) and are reached through `/api/agents/<agent>/actions/<name>` and the briefing service. `backend/ai/agents/` holds the tool-calling study buddy (note quiz), which records weak points directly in the database; the MCP server (step 3) exposes task and note tools for agents built with `run_agent`, which no feature uses yet.
 
 **5. Frontend** (http://localhost:5173, proxies `/api` to the API on port 8000)
 ```bash
@@ -70,5 +71,7 @@ cd frontend && npm test     # frontend
 | `DATABASE_URL` | local Postgres from `docker-compose.yml` |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` |
 | `OLLAMA_MODEL` | `qwen3.5:2b` |
+| `AGENT_TIMEOUT_SECONDS` | `180`, how long a model call or stream may run before the API gives up |
+| `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | `command_center` (read by `docker-compose.yml`; keep `DATABASE_URL` in step) |
 | `MCP_HOST` / `MCP_PORT` / `MCP_URL` | `127.0.0.1` / `8765` / `http://127.0.0.1:8765/mcp` |
 | `LANGSMITH_*` | tracing for agent runs (optional) |

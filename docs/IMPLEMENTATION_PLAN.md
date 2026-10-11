@@ -1,16 +1,20 @@
 # Command Center: 1-Day Build Plan
 
-A minimal personal dashboard with a daily news briefing, today's tasks, and notes. Three local LLM agents sit on top of plain CRUD.
+A minimal personal dashboard with a daily news briefing, today's tasks, notes, goals and powerlifting training. Local LLM calls and one tool-calling agent sit on top of plain CRUD.
+
+> **Status:** the Stack, Architecture, Data model and Model features sections below describe what is built. The phase checklists under Tasks are the original build plan and are not kept as a progress tracker; they still mention plain JS, a single agent input box and other choices that changed. How each part works now is in `architecture/` (`AGENTS.md`, `DATABASE.md`, `FRONTEND.md`, `TRAINING.md`).
 
 ## Stack
 
 | Layer | Choice | Notes |
 |---|---|---|
-| Frontend | Vue 3 + Vite (single-file components, plain JS) | Dev: Vite dev server proxies `/api` to FastAPI. Prod: `vite build` outputs `frontend/dist/`, which FastAPI serves as static files |
-| API | FastAPI | One app, one router per domain |
-| DB | Postgres 16 (Docker Compose) | SQLAlchemy 2.x + psycopg, schema managed by Alembic migrations (see `PARALLEL_PLAN.md`) |
+| Frontend | Vue 3 + Vite + TypeScript, Vue Router, Vitest | Vite dev server proxies `/api` to FastAPI. Serving `frontend/dist/` from FastAPI is not implemented; the app runs in dev mode |
+| API | FastAPI | One app in `api.py` plus routers for agent actions, the study buddy stream and training |
+| DB | Postgres 16 (Docker Compose) | SQLAlchemy 2.x + psycopg, schema managed by Alembic migrations (see `architecture/DATABASE.md`) |
 | LLM | Ollama, `qwen3.5:2b` | Via `langchain-ollama` `ChatOllama`. Upgrade to a larger Qwen if tool calls are unreliable |
-| News | RSS via `feedparser` | Feed list lives in a config file |
+| News | RSS via `feedparser` | Feed list lives in `backend/services/news/feeds.json` |
+| Tools | FastMCP server | Task and note tools for agents, streamable HTTP on port 8765 |
+| Dev stack | Docker Compose, `make up` | Postgres, Ollama, migrations, API, MCP server and frontend in one command |
 | Tracing | LangSmith | Env-var driven, so LangChain calls are traced automatically. `@traceable` covers non-LangChain steps. Can be switched off with one env var |
 
 ## Principles
@@ -25,30 +29,40 @@ A minimal personal dashboard with a daily news briefing, today's tasks, and note
 ## Architecture
 
 ```
-frontend/ (Vite + Vue 3: index.html, vite.config.js, src/main.js, src/App.vue,
-           src/api.js, src/components/*.vue, src/styles.css)
-        |  fetch /api/*  (Vite proxy in dev, same origin from dist/ in prod)
-backend/services/api_service/api.py      FastAPI app, mounts frontend/, routers
-backend/services/news_service/news.py    RSS fetch + parse
-backend/services/news_service/daily_job.py  fetch -> summarize -> store briefing
-backend/agents/                          news_agent.py, tasks_agent.py, notes_agent.py, llm.py
-backend/db/                              models.py, session.py
-docker-compose.yml                       postgres
+frontend/                         Vite + Vue 3 + TypeScript (src/api.ts, pages/, components/, composables/)
+        |  fetch /api/*  (Vite proxy strips the prefix)
+backend/services/api/             FastAPI app (api.py) and routers: agent_routes, study_buddy_routes, training_routes
+backend/services/news/            RSS fetch (news.py), briefing service (briefing.py), feeds.json
+backend/services/mcp/server.py    MCP tools over crud/
+backend/ai/llm/                   single-shot model calls and prompts
+backend/ai/agents/                tool-calling agents (runner.py, study_buddy/)
+backend/crud/                     all SQL; crud/schemas/ holds request models
+backend/models/                   Pydantic response models
+backend/db/                       models.py, session.py
+backend/alembic/versions/         migrations 0001 to 0005
+docker-compose.yml, backend/Dockerfile, Makefile
 ```
 
 ### Data model
-Mirrors the Pydantic models in `backend/models/`. All ids are UUIDs (`gen_random_uuid()`), `date_created` defaults to the current date. ORM in `backend/db/models.py`, migrations in `alembic/versions/` (`0001_initial`).
+Mirrors the Pydantic models in `backend/models/`. All ids are UUIDs (`gen_random_uuid()`), `date_created` defaults to the current date. ORM in `backend/db/models.py`, migrations in `backend/alembic/versions/` (`0001_initial` to `0005_training`).
 - `tasks`: id, title, type (enum `WORK`/`PERSONAL`), requirement, due_date, completed, date_created. Indexed on (due_date, completed)
 - `notes`: id, title, content (text, one markdown document), date_created, summary, summary_generated_at, summary_source_hash (latest AI summary, nullable)
 - `news`: id, title, summary, quiz_section (jsonb list of `{question, answer}`), sources (text[]), date_created. Indexed on date_created
+- `goals`: id, title, details, target_date (optional deadline, used as the meet date), date_created
+- `weak_points`: id, note_id (cascades on note delete), topic, resolved, date_created; one row per topic per note, case-insensitive
+- Training: `training_maxes`, `programs`, `program_sets`, `workout_sessions`, `lift_sets` (see `architecture/TRAINING.md`)
 
-### Agents
+### Model features
 
-| Agent | Job | Tools |
+| Feature | Kind | What it does |
 |---|---|---|
-| News | Summarize the day's RSS items into a briefing | `fetch_feed(url)`, `get_recent_articles(hours)` |
-| Tasks | Turn free text into tasks, suggest a prioritized day plan | `create_task(...)`, `list_tasks(date)`, `update_task_priority(id, priority)` |
-| Notes | Tag, summarize and search notes | `create_note(...)`, `search_notes(query)`, `add_tags(id, tags)` |
+| News briefing | single call | Summarizes the day's RSS items into a title, summary and quiz; `POST /news/refresh` |
+| Plan my day | single call | Orders due tasks with estimates and gives a week status and goal checks; `POST /agents/task/actions/plan_day` |
+| Summarize note | single call | Stores a summary apart from the note's content; `POST /agents/notes/actions/summarize_note` |
+| Balance my week | single call | Judges tasks against gym days and suggests changes; `POST /agents/training/actions/balance_week` |
+| Study buddy | tool-calling agent | Quizzes the user on a note over SSE and records weak points; `POST /agents/notes/study_buddy/stream` (no UI yet) |
+
+Single calls get their data from the route and return structured output the route validates. The MCP server exposes `create_task`, `list_tasks`, `update_task`, `complete_task`, `create_note`, `search_notes` and `append_note_content`, with no delete tools. Details are in `architecture/AGENTS.md`.
 
 ## Tasks
 
