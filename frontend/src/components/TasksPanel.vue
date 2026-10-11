@@ -18,24 +18,27 @@ const open = computed(() => tasks.value.filter((t) => !t.completed))
 const overdueTasks = computed(() => open.value.filter((t) => t.due_date < todayStr))
 const todayTasks = computed(() => open.value.filter((t) => t.due_date === todayStr))
 const upcomingTasks = computed(() => open.value.filter((t) => t.due_date > todayStr))
+// Upcoming and Completed are capped behind a "See more" toggle; Overdue and Today always show in full.
+const LIMITS: Record<string, number> = { Upcoming: 5, Completed: 3 }
+const expanded = ref<Record<string, boolean>>({})
 // Tasks have no completion timestamp, so "latest" = most recent due date.
-const RECENT_DONE = 3
-const showAllDone = ref(false)
 const doneTasks = computed(() => [...tasks.value.filter((t) => t.completed)].reverse())
-const hiddenDoneCount = computed(() => Math.max(0, doneTasks.value.length - RECENT_DONE))
-const visibleDone = computed(() =>
-  showAllDone.value ? doneTasks.value : doneTasks.value.slice(0, RECENT_DONE),
-)
 
 const completedCount = computed(() => doneTasks.value.length)
 const remainingCount = computed(() => open.value.length)
 
-const groups = computed(() => [
-  { name: 'Overdue', items: overdueTasks.value, empty: '' },
-  { name: 'Today', items: todayTasks.value, empty: 'Nothing due today.' },
-  { name: 'Upcoming', items: upcomingTasks.value, empty: 'Nothing upcoming.' },
-  { name: 'Completed', items: visibleDone.value, empty: '' },
-])
+const groups = computed(() =>
+  [
+    { name: 'Overdue', all: overdueTasks.value, empty: '' },
+    { name: 'Today', all: todayTasks.value, empty: 'Nothing due today.' },
+    { name: 'Upcoming', all: upcomingTasks.value, empty: 'Nothing upcoming.' },
+    { name: 'Completed', all: doneTasks.value, empty: '' },
+  ].map((g) => {
+    const limit = LIMITS[g.name]
+    const hidden = limit ? Math.max(0, g.all.length - limit) : 0
+    return { ...g, hidden, items: limit && !expanded.value[g.name] ? g.all.slice(0, limit) : g.all }
+  }),
+)
 
 async function run(fn: () => Promise<void>) {
   error.value = null
@@ -79,15 +82,15 @@ onMounted(load)
             <button class="title" :class="{ done: task.completed }" @click="modalTask = task">{{ task.title }}</button>
             <span class="badge">{{ task.type }}</span>
             <small v-if="group.name === 'Overdue' || group.name === 'Upcoming'">{{ task.due_date }}</small>
-            <button class="btn--ghost btn--danger" :aria-label="`Delete ${task.title}`" @click="deleteTask(task)">Delete</button>
+            <button class="btn--ghost btn--danger btn--sm" :aria-label="`Delete ${task.title}`" @click="deleteTask(task)">Delete</button>
           </li>
         </ul>
         <p v-if="!group.items.length && !loading" class="muted">{{ group.empty }}</p>
         <button
-          v-if="group.name === 'Completed' && hiddenDoneCount"
-          class="btn--ghost"
-          @click="showAllDone = !showAllDone"
-        >{{ showAllDone ? 'See less' : `See more (${hiddenDoneCount})` }}</button>
+          v-if="group.hidden"
+          class="btn--ghost btn--sm"
+          @click="expanded[group.name] = !expanded[group.name]"
+        >{{ expanded[group.name] ? 'See less' : `See more (${group.hidden})` }}</button>
       </template>
     </template>
     </div>

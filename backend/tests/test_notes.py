@@ -29,6 +29,22 @@ def test_search(client):
     assert len(client.get("/notes").json()) == 2
 
 
+def test_search_treats_wildcards_literally(client):
+    make(client, title="Discount", content="save 100% today")
+    make(client, title="Plain", content="nothing here")
+    make(client, title="snake_case", content="x")
+    assert [n["title"] for n in client.get("/notes?q=100%25").json()] == ["Discount"]
+    assert [n["title"] for n in client.get("/notes?q=_").json()] == ["snake_case"]
+    assert client.get("/notes?q=%25").json() == [n for n in client.get("/notes?q=%25").json() if "%" in n["content"]]
+
+
+def test_get_note(client):
+    note = make(client)
+    assert client.get(f"/notes/{note['id']}").json()["title"] == "idea"
+    assert client.get(f"/notes/{uuid.uuid4()}").status_code == 404
+    assert client.get("/notes/not-a-uuid").status_code == 422
+
+
 def test_update_note(client):
     n = make(client)
     r = client.patch(f"/notes/{n['id']}", json={"content": "new"})

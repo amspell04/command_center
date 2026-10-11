@@ -8,7 +8,7 @@ vi.mock('../api', async (orig) => {
 })
 import { ApiError, goalsApi } from '../api'
 
-const goal = (o = {}) => ({ id: 'g1', title: 'Ship report', details: 'By Friday', date_created: '2026-10-10', ...o })
+const goal = (o = {}) => ({ id: 'g1', title: 'Ship report', details: 'By Friday', target_date: null, date_created: '2026-10-10', ...o })
 const btn = (w: ReturnType<typeof mount>, text: string) => w.findAll('button').find((b) => b.text() === text)!
 
 async function mountPanel(goals: object[] = []) {
@@ -80,7 +80,7 @@ describe('GoalsPanel', () => {
     await w.get('input[aria-label="Goal title"]').setValue('Ship it')
     await w.get('form').trigger('submit')
     await flushPromises()
-    expect(goalsApi.update).toHaveBeenCalledWith('g1', { title: 'Ship it', details: 'By Friday' })
+    expect(goalsApi.update).toHaveBeenCalledWith('g1', { title: 'Ship it', details: 'By Friday', target_date: null })
     expect(w.text()).toContain('Ship it')
     expect(w.text()).not.toContain('Ship report')
   })
@@ -103,5 +103,34 @@ describe('GoalsPanel', () => {
     await flushPromises()
     expect(w.get('[role="dialog"] [role="alert"]').text()).toContain('Goal not found')
     expect(w.text()).toContain('Ship report')
+  })
+
+  it('creates a goal with a target date', async () => {
+    vi.mocked(goalsApi.create).mockResolvedValue(goal({ title: 'Meet', target_date: '2027-02-13' }) as never)
+    const w = await mountPanel()
+    await btn(w, 'New goal').trigger('click')
+    await w.get('input[aria-label="Goal title"]').setValue('Meet')
+    await w.get('input[aria-label="Goal target date"]').setValue('2027-02-13')
+    await w.get('form').trigger('submit')
+    await flushPromises()
+    expect(goalsApi.create).toHaveBeenCalledWith({ title: 'Meet', details: '', target_date: '2027-02-13' })
+    expect(w.text()).toContain('By Saturday, February 13')
+  })
+
+  it('shows the date of a goal that has one and nothing for one that does not', async () => {
+    const w = await mountPanel([goal({ target_date: '2027-02-13' }), goal({ id: 'g2', title: 'Read', details: '', target_date: null })])
+    expect(w.findAll('.goal')[0]!.text()).toContain('By Saturday, February 13')
+    expect(w.findAll('.goal')[1]!.text()).not.toContain('By ')
+  })
+
+  it('clears a target date by sending null', async () => {
+    vi.mocked(goalsApi.update).mockResolvedValue(goal() as never)
+    const w = await mountPanel([goal({ target_date: '2027-02-13' })])
+    await w.get('button[aria-label="Edit Ship report"]').trigger('click')
+    expect((w.get('input[aria-label="Goal target date"]').element as HTMLInputElement).value).toBe('2027-02-13')
+    await w.get('input[aria-label="Goal target date"]').setValue('')
+    await w.get('form').trigger('submit')
+    await flushPromises()
+    expect(goalsApi.update).toHaveBeenCalledWith('g1', { title: 'Ship report', details: 'By Friday', target_date: null })
   })
 })

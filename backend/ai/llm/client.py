@@ -12,6 +12,7 @@ def get_llm(name: str) -> ChatOllama:
         model=settings.ollama_model,
         base_url=settings.ollama_base_url,
         temperature=0,
+        reasoning=False,
         tags=[name],
         metadata={"name": name, "model": settings.ollama_model},
     )

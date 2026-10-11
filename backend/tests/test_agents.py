@@ -58,7 +58,7 @@ class FakeLLM:
     def __init__(self):
         self.prompt = None
 
-    def with_structured_output(self, schema):
+    def with_structured_output(self, schema, **kwargs):
         assert schema is NewsCreate
         return self
 
@@ -124,7 +124,7 @@ class FakeStructured:
     def __init__(self):
         self.schema = self.prompt = None
 
-    def with_structured_output(self, schema):
+    def with_structured_output(self, schema, **kwargs):
         self.schema = schema
         return self
 
@@ -141,6 +141,14 @@ async def test_plan_day_uses_structured_output_and_fills_in_today(monkeypatch):
     system, human = llm.prompt
     assert llm.schema is tasks_llm.DayPlan and human.content == "Plan my day."
     assert "{today}" not in system.content and tasks_llm.date.today().isoformat() in system.content
+
+
+@pytest.mark.asyncio
+async def test_plan_day_prompt_uses_the_requested_day(monkeypatch):
+    llm = FakeStructured()
+    monkeypatch.setattr(tasks_llm, "get_llm", lambda name: llm)
+    await tasks_llm.plan_day("Plan.", tasks_llm.date(2030, 1, 2))
+    assert "2030-01-02" in llm.prompt[0].content
 
 
 def test_load_prompt_unknown_name_raises():

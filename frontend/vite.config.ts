@@ -19,7 +19,7 @@ export default defineConfig({
     // Backend routes have no /api prefix, so strip it when proxying.
     proxy: {
       '/api': {
-        target: 'http://localhost:8000',
+        target: process.env.API_PROXY_TARGET ?? 'http://localhost:8000',
         rewrite: (path) => path.replace(/^\/api/, ''),
       },
     },

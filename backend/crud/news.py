@@ -23,6 +23,13 @@ def get_latest_news(db: Session) -> News | None:
     return db.scalars(stmt).first()
 
 
+def delete_news(db: Session, news_id: uuid.UUID) -> None:
+    news = db.get(News, news_id)
+    if news:
+        db.delete(news)
+        db.commit()
+
+
 def list_todays_news(db: Session) -> list[News]:
     stmt = select(News).where(News.date_created == func.current_date()).order_by(News.title)
     return list(db.scalars(stmt))

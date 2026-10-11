@@ -122,13 +122,13 @@ def test_plan_day_reports_week_stats_and_status(client, monkeypatch):
     done = task(client, "done", monday)
     client.patch(f"/tasks/{done['id']}/complete")
     open_today = task(client, "today", TODAY)
-    task(client, "last week", monday - timedelta(days=1))  # outside the week
+    task(client, "last week", monday - timedelta(days=1))  # outside the week, but still overdue
     FakeRun(monkeypatch, plan([PlanItem(task_id=uuid.UUID(open_today["id"]), reason="r", estimate_minutes=15)], week_status="AT_RISK", week_summary="Behind."))
     body = post(client, "task", "plan_day").json()
     assert body["status"] == "AT_RISK" and body["summary"] == "Behind."
     week = body["week"]
     assert (week["start"], week["end"]) == (monday.isoformat(), (monday + timedelta(days=6)).isoformat())
-    assert (week["due_so_far"], week["completed_so_far"], week["overdue_open"]) == (2, 1, 0)
+    assert (week["due_so_far"], week["completed_so_far"], week["overdue_open"]) == (2, 1, 1)
 
 
 def test_plan_day_week_stats_for_a_fixed_wednesday(client, monkeypatch):
@@ -139,6 +139,35 @@ def test_plan_day_week_stats_for_a_fixed_wednesday(client, monkeypatch):
     FakeRun(monkeypatch, plan([]))
     week = post(client, "task", "plan_day", {"date": "2026-10-14"}).json()["week"]
     assert week == {"start": "2026-10-12", "end": "2026-10-18", "due_so_far": 3, "completed_so_far": 1, "overdue_open": 1, "due_remaining": 1}
+
+
+def test_plan_day_counts_overdue_tasks_from_earlier_weeks(client, monkeypatch):
+    task(client, "last week", date(2026, 10, 7))
+    task(client, "this week", date(2026, 10, 13))
+    FakeRun(monkeypatch, plan([]))
+    week = post(client, "task", "plan_day", {"date": "2026-10-14"}).json()["week"]
+    assert week["overdue_open"] == 2 and week["due_so_far"] == 1
+
+
+def test_plan_day_passes_the_requested_day_to_the_model(client, monkeypatch):
+    task(client, "t", date(2026, 10, 13))
+    fake = FakeRun(monkeypatch, plan([]))
+    post(client, "task", "plan_day", {"date": "2026-10-14"})
+    assert fake.calls[0][1] == date(2026, 10, 14)
+
+
+@pytest.mark.asyncio
+async def test_guarded_lets_http_errors_through():
+    from fastapi import HTTPException
+
+    from backend.services.helpers import guarded
+
+    async def work():
+        raise HTTPException(404, "nope")
+
+    with pytest.raises(HTTPException) as e:
+        await guarded("x", work())
+    assert e.value.status_code == 404
 
 
 def test_plan_day_without_due_tasks_still_returns_week_stats_and_no_status(client, monkeypatch):
@@ -236,35 +265,99 @@ def test_summarize_unknown_or_empty_note(client, monkeypatch):
     assert fake.calls == []
 
 
-def test_summarize_appends_the_summary_and_returns_the_note(client, monkeypatch):
+def summarize(client, n, **extra):
+    return post(client, "notes", "summarize_note", {"note_id": n["id"], **extra})
+
+
+def test_summarize_stores_the_summary_and_leaves_content_alone(client, monkeypatch):
     n = note(client, title="Cells")
     fake = FakeSummary(monkeypatch, "Short.")
-    r = post(client, "notes", "summarize_note", {"note_id": n["id"]})
+    r = summarize(client, n)
     assert r.status_code == 200
-    assert r.json()["content"] == "alpha beta gamma\n\nSummary: Short."
+    body = r.json()
+    assert body["summary"] == "Short." and body["summary_stale"] is False and body["summary_generated_at"]
+    assert body["content"] == "alpha beta gamma"
     assert fake.calls == [("Cells", "alpha beta gamma")]
-    assert saved_content(client, n["id"]) == r.json()["content"]
+    assert saved_content(client, n["id"]) == "alpha beta gamma"
+    stored = next(x for x in client.get("/notes").json() if x["id"] == n["id"])
+    assert stored["summary"] == "Short."
+
+
+def test_summarize_reuses_a_current_summary_without_calling_the_model(client, monkeypatch):
+    n = note(client)
+    fake = FakeSummary(monkeypatch, "First.")
+    first = summarize(client, n).json()
+    second = summarize(client, n).json()
+    assert len(fake.calls) == 1
+    assert second["summary"] == "First." and second["summary_generated_at"] == first["summary_generated_at"]
+
+
+def test_summarize_force_regenerates(client, monkeypatch):
+    n = note(client)
+    fake = FakeSummary(monkeypatch, "First.")
+    summarize(client, n)
+    fake.result = "Second."
+    r = summarize(client, n, force=True)
+    assert len(fake.calls) == 2 and r.json()["summary"] == "Second."
+
+
+@pytest.mark.parametrize("change", [{"content": "changed text"}, {"title": "new title"}])
+def test_an_edit_marks_the_summary_stale_and_summarize_regenerates(client, monkeypatch, change):
+    n = note(client)
+    fake = FakeSummary(monkeypatch, "First.")
+    summarize(client, n)
+    stale = client.patch(f"/notes/{n['id']}", json=change).json()
+    assert stale["summary"] == "First." and stale["summary_stale"] is True
+    fake.result = "Fresh."
+    r = summarize(client, n).json()
+    assert len(fake.calls) == 2 and r["summary"] == "Fresh." and r["summary_stale"] is False
+
+
+def test_whitespace_only_edits_do_not_make_the_summary_stale(client, monkeypatch):
+    n = note(client)
+    FakeSummary(monkeypatch)
+    summarize(client, n)
+    assert client.patch(f"/notes/{n['id']}", json={"content": "alpha beta gamma\n\n"}).json()["summary_stale"] is False
+
+
+def test_notes_without_a_summary_are_not_stale(client):
+    n = note(client)
+    assert n["summary"] is None and n["summary_stale"] is False
+
+
+def test_summary_cannot_be_set_through_the_notes_api(client):
+    n = note(client)
+    assert client.patch(f"/notes/{n['id']}", json={"summary": "forged"}).status_code == 422
+    assert client.post("/notes", json={"title": "t", "summary": "forged"}).status_code == 422
+
+
+def test_summarize_rejects_a_non_boolean_force(client, monkeypatch):
+    fake = FakeSummary(monkeypatch)
+    assert summarize(client, note(client), force="maybe").status_code == 422
+    assert fake.calls == []
 
 
 def test_summarize_does_not_double_the_label(client, monkeypatch):
     n = note(client)
     FakeSummary(monkeypatch, "Summary: Short.")
-    assert post(client, "notes", "summarize_note", {"note_id": n["id"]}).json()["content"].endswith("\n\nSummary: Short.")
+    assert summarize(client, n).json()["summary"] == "Short."
 
 
 @pytest.mark.parametrize("reply", ["", "   ", "Summary:"])
 def test_summarize_with_an_empty_reply_is_502_and_saves_nothing(client, monkeypatch, reply):
     n = note(client)
     FakeSummary(monkeypatch, reply)
-    assert post(client, "notes", "summarize_note", {"note_id": n["id"]}).status_code == 502
-    assert saved_content(client, n["id"]) == "alpha beta gamma"
+    assert summarize(client, n).status_code == 502
+    assert next(x for x in client.get("/notes").json() if x["id"] == n["id"])["summary"] is None
 
 
-def test_summarize_failure_saves_nothing(client, monkeypatch):
+def test_summarize_failure_keeps_the_previous_summary(client, monkeypatch):
     n = note(client)
-    FakeSummary(monkeypatch, exc=ConnectionError("down"))
-    assert post(client, "notes", "summarize_note", {"note_id": n["id"]}).status_code == 503
-    assert saved_content(client, n["id"]) == "alpha beta gamma"
+    fake = FakeSummary(monkeypatch, "Kept.")
+    summarize(client, n)
+    fake.exc = ConnectionError("down")
+    assert summarize(client, n, force=True).status_code == 503
+    assert next(x for x in client.get("/notes").json() if x["id"] == n["id"])["summary"] == "Kept."
 
 
 # failure mapping
@@ -286,7 +379,7 @@ def test_llm_failures_map_to_http_errors(client, monkeypatch, exc, status):
 def test_timeout_is_504(client, monkeypatch):
     task(client, "overdue", YESTERDAY)
 
-    async def slow(message):
+    async def slow(message, day=None):
         await asyncio.sleep(1)
 
     monkeypatch.setattr(tasks_llm, "plan_day", slow)
@@ -300,7 +393,7 @@ class FakeAgent:
     def __init__(self, result):
         self.result = result
 
-    async def ainvoke(self, payload):
+    async def ainvoke(self, payload, config=None):
         return self.result
 
 

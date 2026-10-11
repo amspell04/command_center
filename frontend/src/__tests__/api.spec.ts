@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { agentsApi, ApiError, newsApi, tasksApi } from '../api'
+import { agentsApi, ApiError, newsApi, tasksApi, trainingApi, weakPointsApi } from '../api'
 
 const respond = (status: number, body?: unknown) =>
   new Response(body === undefined ? null : JSON.stringify(body), { status })
@@ -7,6 +7,14 @@ const respond = (status: number, body?: unknown) =>
 afterEach(() => vi.unstubAllGlobals())
 
 describe('api client', () => {
+  it('lists weak points, optionally filtered by resolved', async () => {
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(respond(200, [])))
+    vi.stubGlobal('fetch', fetchMock)
+    await weakPointsApi.list()
+    await weakPointsApi.list(false)
+    expect(fetchMock.mock.calls.map((c) => c[0])).toEqual(['/api/weak_points', '/api/weak_points?resolved=false'])
+  })
+
   it('POSTs JSON to /api/tasks', async () => {
     const fetchMock = vi.fn().mockResolvedValue(respond(201, { id: '1' }))
     vi.stubGlobal('fetch', fetchMock)
@@ -58,14 +66,17 @@ describe('agent and news endpoints', () => {
 
   it('POSTs agent actions to /api/agents/<agent>/actions/<name>', async () => {
     const f = stub()
-    await agentsApi.planDay()
+    await agentsApi.planDay('2026-10-14')
     await agentsApi.summarizeNote('n1')
     expect(f.mock.calls.map(([url]) => url)).toEqual([
       '/api/agents/task/actions/plan_day',
       '/api/agents/notes/actions/summarize_note',
     ])
     expect(f.mock.calls.every(([, init]) => init.method === 'POST')).toBe(true)
-    expect(JSON.parse(f.mock.calls[1][1].body)).toEqual({ note_id: 'n1' })
+    expect(JSON.parse(f.mock.calls[0][1].body)).toEqual({ date: '2026-10-14' })
+    expect(JSON.parse(f.mock.calls[1][1].body)).toEqual({ note_id: 'n1', force: false })
+    await agentsApi.summarizeNote('n1', true)
+    expect(JSON.parse(f.mock.calls[2][1].body)).toEqual({ note_id: 'n1', force: true })
   })
 
   it('POSTs the briefing refresh with no body', async () => {
@@ -73,6 +84,12 @@ describe('agent and news endpoints', () => {
     await newsApi.refresh()
     expect(f.mock.calls[0][0]).toBe('/api/news/refresh')
     expect(f.mock.calls[0][1]).toMatchObject({ method: 'POST' })
+  })
+
+  it('POSTs the briefing refresh with replace=true when regenerating', async () => {
+    const f = stub(201)
+    await newsApi.refresh(true)
+    expect(f.mock.calls[0][0]).toBe('/api/news/refresh?replace=true')
   })
 
   it('GETs the latest briefing and a briefing by id', async () => {
@@ -84,6 +101,53 @@ describe('agent and news endpoints', () => {
 
   it('surfaces agent error details', async () => {
     stub(503, { detail: 'Agent unavailable: check that the MCP server and Ollama are running' })
-    await expect(agentsApi.planDay()).rejects.toMatchObject({ status: 503 })
+    await expect(agentsApi.planDay('2026-10-14')).rejects.toMatchObject({ status: 503 })
+  })
+
+  it('talks to the training endpoints', async () => {
+    const f = stub()
+    await trainingApi.setMax({ lift: 'SQUAT', weight: 405, effective_date: '2026-10-12' })
+    await trainingApi.exercises('p1')
+    await trainingApi.updateExercise('e1', { percent: 85 })
+    await trainingApi.copyWeek('p1', 1, 2)
+    await trainingApi.removeExercise('e1')
+    expect(f.mock.calls.map(([url, init]) => [url, init?.method])).toEqual([
+      ['/api/training/maxes', 'PUT'],
+      ['/api/training/programs/p1/sets', undefined],
+      ['/api/training/sets/e1', 'PATCH'],
+      ['/api/training/programs/p1/copy_week', 'POST'],
+      ['/api/training/sets/e1', 'DELETE'],
+    ])
+    expect(JSON.parse(f.mock.calls[3][1].body)).toEqual({ from_week: 1, to_week: 2 })
+  })
+
+  it('talks to the planned and session endpoints', async () => {
+    const f = stub()
+    await trainingApi.planned('2026-10-12')
+    await trainingApi.sessionsBetween('2026-10-12', '2026-10-12')
+    await trainingApi.saveSession({ date: '2026-10-12', notes: '', bodyweight: null, sets: [] })
+    await trainingApi.removeSession('s1')
+    expect(f.mock.calls.map(([url, init]) => [url, init?.method])).toEqual([
+      ['/api/training/planned?date=2026-10-12', undefined],
+      ['/api/training/sessions?start=2026-10-12&end=2026-10-12', undefined],
+      ['/api/training/sessions', 'PUT'],
+      ['/api/training/sessions/s1', 'DELETE'],
+    ])
+  })
+
+  it('GETs the gym week and POSTs the week balance action', async () => {
+    const f = stub()
+    await trainingApi.week()
+    await agentsApi.balanceWeek('2026-10-14')
+    expect(JSON.parse(f.mock.calls[1][1].body)).toEqual({ date: '2026-10-14' })
+    expect(f.mock.calls.map(([url, init]) => [url, init?.method])).toEqual([
+      ['/api/training/week', undefined],
+      ['/api/agents/training/actions/balance_week', 'POST'],
+    ])
+  })
+
+  it('surfaces training validation errors', async () => {
+    stub(422, { detail: 'Week 2 already has exercises' })
+    await expect(trainingApi.copyWeek('p1', 1, 2)).rejects.toMatchObject({ status: 422, message: 'Week 2 already has exercises' })
   })
 })

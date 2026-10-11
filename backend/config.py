@@ -1,3 +1,5 @@
+import os
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -15,5 +17,24 @@ class Settings(BaseSettings):
 
     agent_timeout_seconds: float = 180
 
+    langsmith_tracing: bool = False
+    langsmith_api_key: str = ""
+    langsmith_project: str = "command-center"
+
 
 settings = Settings()
+
+
+def configure_tracing() -> None:
+    """Export LangSmith settings to the environment, where the langsmith SDK reads them.
+
+    pydantic-settings loads `.env` into `settings` only, not `os.environ`. Tracing stays off without an API key.
+    """
+    enabled = settings.langsmith_tracing and bool(settings.langsmith_api_key)
+    os.environ["LANGSMITH_TRACING"] = "true" if enabled else "false"
+    if enabled:
+        os.environ["LANGSMITH_API_KEY"] = settings.langsmith_api_key
+        os.environ["LANGSMITH_PROJECT"] = settings.langsmith_project
+
+
+configure_tracing()

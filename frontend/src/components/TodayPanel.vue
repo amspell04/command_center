@@ -1,13 +1,19 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { agentsApi, errorMessage } from '../api'
+import { useGymWeek } from '../composables/useGymWeek'
 import { useTasks } from '../composables/useTasks'
 import type { DayPlan, Task, WeekStatus } from '../types'
 import { duration, localToday, longDate } from '../utils/dates'
 
 const { tasks, loading, load, toggleComplete } = useTasks()
+const gym = useGymWeek()
 
-const todayStr = localToday()
+const todayStr = ref(localToday())
+// A tab left open past midnight picks up the new day when it is next looked at.
+const refreshToday = () => {
+  if (!document.hidden) todayStr.value = localToday()
+}
 const plan = ref<DayPlan | null>(null)
 const planning = ref(false)
 const error = ref<string | null>(null)
@@ -42,13 +48,13 @@ const agenda = computed<Entry[]>(() => {
       minutes: i.estimate_minutes,
     }))
   }
-  return tasks.value.filter((t) => !t.completed && t.due_date <= todayStr).map(fromTask)
+  return tasks.value.filter((t) => !t.completed && t.due_date <= todayStr.value).map(fromTask)
 })
 const priorities = computed(() => agenda.value.slice(0, TOP))
 const alsoToday = computed(() => agenda.value.slice(TOP))
 const comingUp = computed(() => {
   const end = plan.value?.week.end
-  return tasks.value.filter((t) => !t.completed && t.due_date > todayStr && (!end || t.due_date <= end)).slice(0, 5)
+  return tasks.value.filter((t) => !t.completed && t.due_date > todayStr.value && (!end || t.due_date <= end)).slice(0, 5)
 })
 const totalMinutes = computed(() => agenda.value.reduce((sum, e) => sum + (e.minutes ?? 0), 0))
 const weekLine = computed(() => {
@@ -61,7 +67,7 @@ async function planDay() {
   planning.value = true
   error.value = null
   try {
-    plan.value = await agentsApi.planDay()
+    plan.value = await agentsApi.planDay(todayStr.value)
   } catch (e) {
     error.value = errorMessage(e)
   }
@@ -77,7 +83,14 @@ async function toggle(task: Task) {
   }
 }
 
-onMounted(() => load().catch((e) => (error.value = errorMessage(e))))
+const gymToday = computed(() => gym.days.value.find((g) => g.date === todayStr.value))
+
+onMounted(() => {
+  document.addEventListener('visibilitychange', refreshToday)
+  gym.load()
+  load().catch((e) => (error.value = errorMessage(e)))
+})
+onBeforeUnmount(() => document.removeEventListener('visibilitychange', refreshToday))
 </script>
 
 <template>
@@ -93,6 +106,11 @@ onMounted(() => load().catch((e) => (error.value = errorMessage(e))))
     </header>
 
     <p v-if="error" class="error" role="alert">{{ error }}</p>
+
+    <p v-if="gymToday" class="gym" data-testid="gym-today">
+      <strong>{{ gymToday.logged ? 'Gym · done' : 'Gym today' }}</strong>
+      {{ gymToday.details.join(' · ') }}
+    </p>
 
     <section v-if="plan" class="status" aria-label="Week status">
       <p v-if="plan.status" class="status__line">
@@ -170,6 +188,12 @@ onMounted(() => load().catch((e) => (error.value = errorMessage(e))))
 </template>
 
 <style scoped>
+.gym {
+  margin: 0 0 var(--space-2);
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--accent-color);
+  font-size: var(--text-sm);
+}
 .status {
   margin-bottom: var(--space-2);
   padding-left: var(--space-3);
@@ -228,17 +252,17 @@ onMounted(() => load().catch((e) => (error.value = errorMessage(e))))
   color: var(--warn-color);
 }
 .eyebrow {
-  margin-top: var(--space-4);
+  margin-top: var(--space-3);
 }
 .slot {
   display: flex;
   align-items: flex-start;
-  gap: var(--space-3);
-  padding: var(--space-2) 0;
+  gap: var(--space-2);
+  padding: var(--space-1) 0;
   border-bottom: 1px solid var(--border-color);
 }
 .slot--top .slot__title {
-  font-size: var(--text-lg);
+  font-size: var(--text-base);
   font-weight: 600;
 }
 .rank {

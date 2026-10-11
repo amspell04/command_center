@@ -35,6 +35,13 @@ def list_weak_points(db: Session, note_id: uuid.UUID, resolved: bool | None = No
     return list(db.scalars(stmt))
 
 
+def list_all_weak_points(db: Session, resolved: bool | None = None) -> list[WeakPoint]:
+    stmt = select(WeakPoint).order_by(WeakPoint.date_created.desc(), WeakPoint.topic)
+    if resolved is not None:
+        stmt = stmt.where(WeakPoint.resolved == resolved)
+    return list(db.scalars(stmt))
+
+
 def update_weak_point(db: Session, weak_point_id: uuid.UUID, **fields) -> WeakPoint | None:
     """Partial update. `fields` must be JSON-mode values."""
     stmt = update(WeakPoint).where(WeakPoint.id == weak_point_id).values(**fields).returning(WeakPoint)

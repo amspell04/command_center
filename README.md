@@ -13,7 +13,13 @@ pip install -r requirements.txt
 cd frontend && npm install && cd ..
 ```
 
-## Start (run each in its own terminal, from the repo root)
+## Start everything with one command
+```bash
+make up      # db, Ollama (+ model pull), migrations, API, MCP server, frontend
+```
+Frontend http://localhost:5173, API http://localhost:8000/docs, MCP http://localhost:8765/mcp. First run downloads the Ollama model. `make down` stops, `make reset` also deletes the database and models. Code is bind-mounted, so API and frontend reload on edit. This stack is for local development only: the API runs with `--reload`, source is bind-mounted into the containers, and Postgres is published on localhost with a default password. Do not expose it as is. Ollama runs in Docker (CPU only on macOS); for GPU speed, run native Ollama instead and use the manual steps below.
+
+## Start manually (run each in its own terminal, from the repo root)
 
 **1. Database**
 ```bash

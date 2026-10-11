@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { errorMessage, goalsApi } from '../api'
 import type { Goal } from '../types'
+import { longDate } from '../utils/dates'
 import GoalModal from './GoalModal.vue'
 
 const goals = ref<Goal[]>([])
@@ -46,6 +47,7 @@ onMounted(load)
       <li v-for="goal in goals" :key="goal.id">
         <button class="goal" :aria-label="`Edit ${goal.title}`" @click="modalGoal = goal">
           <span>{{ goal.title }}</span>
+          <small v-if="goal.target_date">By {{ longDate(goal.target_date) }}</small>
           <small v-if="goal.details">{{ goal.details }}</small>
         </button>
       </li>

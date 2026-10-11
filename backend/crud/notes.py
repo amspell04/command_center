@@ -22,8 +22,8 @@ def list_notes(db: Session, q: str | None = None) -> list[Note]:
     """`q` matches case-insensitively against the title and the content."""
     stmt = select(Note).order_by(Note.date_created.desc(), Note.title)
     if q:
-        pattern = f"%{q}%"
-        stmt = stmt.where(or_(Note.title.ilike(pattern), Note.content.ilike(pattern)))
+        pattern = "%" + q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+        stmt = stmt.where(or_(Note.title.ilike(pattern, escape="\\"), Note.content.ilike(pattern, escape="\\")))
     return list(db.scalars(stmt))
 
 

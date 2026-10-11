@@ -30,9 +30,9 @@ class DayPlan(BaseModel):
     goal_checks: list[GoalCheck] = []
 
 
-@traceable(run_type="llm")
-async def plan_day(message: str) -> DayPlan:
+@traceable(run_type="chain")
+async def plan_day(message: str, day: date | None = None) -> DayPlan:
     """One structured model call: no tools, no DB access. The message carries the tasks, week numbers and goals."""
-    prompt = load_prompt("plan_day").replace("{today}", date.today().isoformat())
-    llm = get_llm("tasks").with_structured_output(DayPlan)
+    prompt = load_prompt("plan_day").replace("{today}", (day or date.today()).isoformat())
+    llm = get_llm("tasks").with_structured_output(DayPlan, method="json_schema")
     return await llm.ainvoke([SystemMessage(prompt), HumanMessage(message)])

@@ -22,13 +22,4 @@ const emit = defineEmits<{ close: []; confirm: [] }>()
   gap: var(--space-2);
   justify-content: flex-end;
 }
-.btn--danger-solid,
-.btn--danger-solid:hover:not(:disabled) {
-  background: var(--danger-color);
-  border-color: var(--danger-color);
-  color: #fff;
-}
-.btn--danger-solid:hover:not(:disabled) {
-  filter: brightness(0.9);
-}
 </style>

@@ -17,7 +17,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
       <div class="modal" role="dialog" aria-modal="true" :aria-label="title">
         <header>
           <h2>{{ title }}</h2>
-          <button type="button" class="btn--ghost close" aria-label="Close" @click="emit('close')">×</button>
+          <button type="button" class="btn--ghost btn--icon" aria-label="Close" @click="emit('close')">×</button>
         </header>
         <slot />
       </div>
@@ -55,11 +55,5 @@ header {
 h2 {
   margin: 0;
   font-size: var(--text-lg);
-}
-.close {
-  font-size: var(--text-xl);
-  line-height: 1;
-  width: 32px;
-  padding: 0;
 }
 </style>

@@ -8,4 +8,5 @@ class Goal(BaseModel):
     id: uuid.UUID
     title: str
     details: str
+    target_date: date | None = None
     date_created: date

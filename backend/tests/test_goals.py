@@ -45,3 +45,25 @@ def test_delete_goal(client):
     assert client.delete(f"/goals/{g['id']}").status_code == 204
     assert client.get("/goals").json() == []
     assert client.delete(f"/goals/{g['id']}").status_code == 404
+
+
+def test_goal_target_date_is_optional_and_round_trips(client):
+    assert make(client)["target_date"] is None
+    g = make(client, title="Meet", target_date="2027-02-13")
+    assert g["target_date"] == "2027-02-13"
+    r = client.patch(f"/goals/{g['id']}", json={"target_date": "2027-02-20"})
+    assert r.status_code == 200 and r.json()["target_date"] == "2027-02-20"
+
+
+def test_goal_rejects_a_bad_target_date(client):
+    assert client.post("/goals", json={**GOAL, "target_date": "next feb"}).status_code == 422
+    g = make(client)
+    assert client.patch(f"/goals/{g['id']}", json={"target_date": "2027-13-40"}).status_code == 422
+
+
+def test_goal_target_date_can_be_cleared_but_other_fields_cannot_be_null(client):
+    g = make(client, target_date="2027-02-13")
+    r = client.patch(f"/goals/{g['id']}", json={"target_date": None})
+    assert r.status_code == 200 and r.json()["target_date"] is None
+    assert client.patch(f"/goals/{g['id']}", json={"title": "x", "details": None}).status_code == 422
+    assert client.patch(f"/goals/{g['id']}", json={"title": None, "target_date": None}).status_code == 422

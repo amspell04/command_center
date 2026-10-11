@@ -135,6 +135,23 @@ describe('TodayPanel plan my day', () => {
     expect(w.text()).toContain('Estimated total: 2 h')
   })
 
+  it("sends the browser's date, and the new day once the tab is shown after midnight", async () => {
+    vi.mocked(agentsApi.planDay).mockResolvedValue(plan() as never)
+    const w = await mountPanel([task()])
+    await btn(w, 'Plan my day')!.trigger('click')
+    expect(agentsApi.planDay).toHaveBeenLastCalledWith(today)
+
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(new Date().getFullYear() + 1, 0, 2, 9))
+    document.dispatchEvent(new Event('visibilitychange'))
+    await flushPromises()
+    await btn(w, 'Plan my day')!.trigger('click')
+    expect(agentsApi.planDay).toHaveBeenLastCalledWith(localToday())
+    expect(localToday()).not.toBe(today)
+    vi.useRealTimers()
+    w.unmount()
+  })
+
   it('ignores missing estimates in the total and omits it when none exist', async () => {
     vi.mocked(agentsApi.planDay).mockResolvedValue(
       plan({ items: [planned('t1', 'Call dentist', null, '')] }) as never,

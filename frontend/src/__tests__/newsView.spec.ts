@@ -78,7 +78,7 @@ describe('NewsView', () => {
     const { w, router } = await open()
     await w.findAll('button').find((b) => b.text() === 'Print')!.trigger('click')
     expect(print).toHaveBeenCalledTimes(1)
-    await w.findAll('button').find((b) => b.text() === '← Back')!.trigger('click')
+    await w.findAll('button').find((b) => b.text() === '← Home')!.trigger('click')
     await flushPromises()
     expect(router.currentRoute.value.path).toBe('/')
   })

@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { agentsApi, errorMessage } from '../api'
 import type { Note } from '../types'
 
-const props = defineProps<{ noteId: string; unsaved: boolean }>()
+// A current summary is reused by the server, so re-running it needs force. A stale one regenerates on its own.
+const props = defineProps<{ noteId: string; unsaved: boolean; hasSummary: boolean; stale: boolean }>()
 const emit = defineEmits<{ summarized: [note: Note] }>()
 
+const regenerate = computed(() => props.hasSummary && !props.stale)
 const busy = ref<'summarize' | null>(null)
 const error = ref<string | null>(null)
 
@@ -14,7 +16,7 @@ async function summarize() {
   busy.value = 'summarize'
   error.value = null
   try {
-    emit('summarized', await agentsApi.summarizeNote(props.noteId))
+    emit('summarized', await agentsApi.summarizeNote(props.noteId, regenerate.value))
   } catch (e) {
     error.value = errorMessage(e)
   }
@@ -26,7 +28,7 @@ async function summarize() {
   <div class="agent">
     <div class="agent__buttons">
       <button class="btn--primary" :disabled="busy !== null || unsaved" @click="summarize">
-        {{ busy === 'summarize' ? 'Summarizing…' : 'Summarize' }}
+        {{ busy === 'summarize' ? 'Summarizing…' : regenerate ? 'Regenerate summary' : 'Summarize' }}
       </button>
       <small v-if="unsaved">Save your changes first, the agent reads the saved note.</small>
     </div>
@@ -35,16 +37,13 @@ async function summarize() {
 </template>
 
 <style scoped>
-/* Children join the page grid: buttons sit in the header. */
-.agent {
-  display: contents;
-}
 .agent__buttons {
-  grid-area: buttons;
   display: flex;
   gap: var(--space-2);
   align-items: center;
-  justify-content: flex-end;
   flex-wrap: wrap;
+}
+.agent .error {
+  margin: var(--space-2) 0 0;
 }
 </style>

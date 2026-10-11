@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useGymWeek } from '../composables/useGymWeek'
 import { useTasks } from '../composables/useTasks'
 import type { Task } from '../types'
 import { dayOfMonth, localToday, weekDates, weekdayShort } from '../utils/dates'
 import TaskModal from './TaskModal.vue'
 
 const { tasks, load, upsert, dropLocal } = useTasks()
+const gym = useGymWeek()
 const loadFailed = ref(false)
 const todayStr = localToday()
 const modalTask = ref<Task | undefined>(undefined)
@@ -15,6 +17,7 @@ const days = computed(() =>
     date,
     isToday: date === todayStr,
     tasks: tasks.value.filter((t) => t.due_date === date),
+    gym: gym.days.value.find((g) => g.date === date),
   })),
 )
 
@@ -23,7 +26,10 @@ function state(task: Task, date: string) {
   return date < todayStr ? 'overdue' : 'open'
 }
 
-onMounted(() => load().catch(() => (loadFailed.value = true)))
+onMounted(() => {
+  gym.load()
+  load().catch(() => (loadFailed.value = true))
+})
 </script>
 
 <template>
@@ -34,6 +40,9 @@ onMounted(() => load().catch(() => (loadFailed.value = true)))
         <span class="dom">{{ dayOfMonth(day.date) }}</span>
         <small v-if="day.tasks.length">{{ day.tasks.length }}</small>
       </header>
+      <p v-if="day.gym" class="gym" :class="{ 'gym--done': day.gym.logged }" :title="day.gym.details.join('; ')" data-testid="gym">
+        {{ day.gym.logged ? '✓' : '' }} {{ day.gym.lifts.join(' · ') }}
+      </p>
       <ul>
         <li v-for="task in day.tasks" :key="task.id">
           <button class="chip" :class="`chip--${state(task, day.date)}`" :title="task.title" @click="modalTask = task">
@@ -42,7 +51,7 @@ onMounted(() => load().catch(() => (loadFailed.value = true)))
           </button>
         </li>
       </ul>
-      <p v-if="!day.tasks.length" class="empty">—</p>
+      <p v-if="!day.tasks.length && !day.gym" class="empty">—</p>
     </div>
     <p v-if="loadFailed" class="error" role="alert">Could not load the week.</p>
 
@@ -106,41 +115,17 @@ ul {
   flex-direction: column;
   gap: 2px;
 }
-.chip {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  width: 100%;
-  min-height: 24px;
+.gym {
+  margin: 0 0 var(--space-1);
   padding: 0 var(--space-1);
-  border: none;
-  background: none;
-  font-weight: 400;
-  text-align: left;
+  border-left: 2px solid var(--accent-color);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--accent-color);
 }
-.chip__title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.chip--done {
+.gym--done {
   color: var(--text-muted);
-  text-decoration: line-through;
-}
-.chip--overdue {
-  color: var(--overdue-color);
-}
-.dot {
-  flex-shrink: 0;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-}
-.dot--work {
-  background: var(--accent-color);
-}
-.dot--personal {
-  background: #2f8f83;
+  border-left-color: var(--text-muted);
 }
 .empty {
   margin: 0;

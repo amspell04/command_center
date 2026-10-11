@@ -12,11 +12,15 @@ from sqlalchemy.orm import Session
 
 from backend.ai.llm import notes as notes_llm
 from backend.ai.llm import tasks as tasks_llm
+from backend.ai.llm import training as training_llm
 from backend.crud import goals as goals_crud
 from backend.crud import notes as notes_crud
 from backend.crud import tasks as tasks_crud
+from backend.crud import training as training_crud
+from backend.db.models import note_hash
 from backend.db.session import get_db
 from backend.models.note import Note
+from backend.models.training import GymDay
 from backend.services.helpers import _found, guarded
 
 router = APIRouter(prefix="/agents", tags=["agents"])
@@ -30,8 +34,16 @@ class PlanDayParams(Params):
     date: dt.date | None = None
 
 
+class BalanceWeekParams(Params):
+    date: dt.date | None = None  # any day in the week to balance
+
+
 class NoteParams(Params):
     note_id: uuid.UUID
+
+
+class SummarizeParams(NoteParams):
+    force: bool = False  # regenerate even when the stored summary is current
 
 
 class PlannedTask(BaseModel):
@@ -49,7 +61,7 @@ class WeekStats(BaseModel):
     end: dt.date
     due_so_far: int  # due Monday through the planned date
     completed_so_far: int
-    overdue_open: int  # due before the planned date and still open
+    overdue_open: int  # due before the planned date, in any week, and still open
     due_remaining: int  # due after the planned date, within the week
 
 
@@ -67,6 +79,37 @@ class DayPlanResult(BaseModel):
     status: Literal["ON_TRACK", "AT_RISK", "OFF_TRACK"] | None = None  # None when the model was not run
     summary: str = ""
     goals: list[GoalStatus] = []
+
+
+class BalanceDay(BaseModel):
+    date: dt.date
+    weekday: str
+    tasks_due: int
+    tasks_done: int
+    task_titles: list[str]  # the open ones
+    gym: GymDay | None = None
+
+
+class Meet(BaseModel):
+    title: str
+    date: dt.date
+    days_left: int
+
+
+class BalanceSuggestion(BaseModel):
+    date: dt.date
+    action: str
+
+
+class WeekBalanceResult(BaseModel):
+    start: dt.date
+    end: dt.date
+    days: list[BalanceDay]
+    meet: Meet | None = None
+    program: str | None = None  # e.g. "Meet prep, week 3 of 10"
+    status: Literal["BALANCED", "TIGHT", "OVERLOADED"] | None = None  # None when the model was not run
+    summary: str = ""
+    suggestions: list[BalanceSuggestion] = []
 
 
 def _note_or_404(db: Session, note_id: uuid.UUID):
@@ -94,7 +137,7 @@ def _week_stats(tasks, day: date) -> WeekStats:
         end=end,
         due_so_far=len(so_far),
         completed_so_far=sum(t.completed for t in so_far),
-        overdue_open=sum(not t.completed and t.due_date < day for t in so_far),
+        overdue_open=sum(not t.completed and t.due_date < day for t in tasks),
         due_remaining=sum(day < t.due_date <= end for t in tasks),
     )
 
@@ -121,7 +164,7 @@ async def plan_day(db: Session, p: PlanDayParams) -> DayPlanResult:
         return DayPlanResult(date=day, items=[], week=week)
     goals = goals_crud.list_goals(db)
     message = _plan_message(day, week, goals, sorted(due.values(), key=lambda t: t.due_date))
-    plan = await guarded("tasks/plan_day", tasks_llm.plan_day(message))
+    plan = await guarded("tasks/plan_day", tasks_llm.plan_day(message, day))
     items, seen = [], set()
     for item in plan.items:
         task = due.get(item.task_id)
@@ -137,22 +180,80 @@ async def plan_day(db: Session, p: PlanDayParams) -> DayPlanResult:
     return DayPlanResult(date=day, items=items, week=week, status=plan.week_status, summary=plan.week_summary, goals=list(checked.values()))
 
 
+# TRAINING
+
+def _balance_message(day: date, days: list[BalanceDay], meet: Meet | None, program: str | None) -> str:
+    lines = [
+        f"Balance my week. Today is {day.isoformat()}, only suggest changes for today or later.",
+        f"Meet: {meet.title} on {meet.date}, {meet.days_left} days away." if meet else "Meet: no date set.",
+        f"Program: {program}." if program else "Program: none active.",
+        "Days:",
+    ]
+    for d in days:
+        gym = "; ".join(d.gym.details) if d.gym else "no gym"
+        tasks = f"{d.tasks_due} tasks due, {d.tasks_done} done" + (f" ({', '.join(d.task_titles)})" if d.task_titles else "")
+        lines.append(f"- {d.date} {d.weekday}: gym: {gym}. Tasks: {tasks}.")
+    return "\n".join(lines)
+
+
+async def balance_week(db: Session, p: BalanceWeekParams) -> WeekBalanceResult:
+    day = p.date or date.today()
+    start = day - timedelta(days=day.weekday())
+    end = start + timedelta(days=6)
+    tasks = tasks_crud.list_tasks(db)
+    days = []
+    for d in (start + timedelta(days=i) for i in range(7)):
+        due = [t for t in tasks if t.due_date == d]
+        days.append(BalanceDay(
+            date=d, weekday=d.strftime("%A"), tasks_due=len(due), tasks_done=sum(t.completed for t in due),
+            task_titles=[t.title for t in due if not t.completed][:5], gym=training_crud.gym_day(db, d),
+        ))
+    upcoming = sorted((g for g in goals_crud.list_goals(db) if g.target_date and g.target_date >= day), key=lambda g: g.target_date)
+    meet = Meet(title=upcoming[0].title, date=upcoming[0].target_date, days_left=(upcoming[0].target_date - day).days) if upcoming else None
+    active = training_crud.get_active_program(db)
+    program = None
+    if active is not None and 0 <= (end - active.start_date).days and (start - active.start_date).days < active.weeks * 7:
+        week_no = max(1, (start - active.start_date).days // 7 + 1)
+        program = f"{active.name}, week {min(week_no, active.weeks)} of {active.weeks}"
+    result = WeekBalanceResult(start=start, end=end, days=days, meet=meet, program=program)
+    if not any(d.gym for d in days):  # nothing to balance tasks against
+        return result
+    balance = await guarded("training/balance_week", training_llm.balance_week(_balance_message(day, days, meet, program), day))
+    result.status, result.summary = balance.status, balance.summary
+    seen = set()
+    for s in balance.suggestions:  # keep only real, upcoming days in this week, and each date's action once
+        key = (s.date, s.action.strip().lower())
+        if max(day, start) <= s.date <= end and s.action.strip() and key not in seen and len(result.suggestions) < 4:
+            seen.add(key)
+            result.suggestions.append(BalanceSuggestion(date=s.date, action=s.action.strip()))
+    return result
+
+
 # NOTES
 
-async def summarize_note(db: Session, p: NoteParams) -> Note:
+async def summarize_note(db: Session, p: SummarizeParams) -> Note:
     note = _note_or_404(db, p.note_id)
     text = _note_text(note)
+    if note.summary and not note.summary_stale and not p.force:
+        return Note.model_validate(note, from_attributes=True)
     summary = (await guarded("notes/summarize_note", notes_llm.summarize_note(note.title, text))).strip()
-    summary = summary.removeprefix("Summary:").strip()  # the route adds the label itself
+    summary = summary.removeprefix("Summary:").strip()
     if not summary:
         raise HTTPException(502, "The agent returned an unusable response, try again")
-    saved = notes_crud.update_note(db, note.id, content=f"{note.content.rstrip()}\n\nSummary: {summary}")
+    saved = notes_crud.update_note(
+        db,
+        note.id,
+        summary=summary,
+        summary_generated_at=dt.datetime.now(dt.timezone.utc),
+        summary_source_hash=note_hash(note.title, note.content),
+    )
     return Note.model_validate(_found(saved, "Note"), from_attributes=True)
 
 
 HANDLERS: dict[tuple[str, str], tuple[type[Params], Callable[[Session, Params], Awaitable[BaseModel]]]] = {
     ("task", "plan_day"): (PlanDayParams, plan_day),
-    ("notes", "summarize_note"): (NoteParams, summarize_note),
+    ("training", "balance_week"): (BalanceWeekParams, balance_week),
+    ("notes", "summarize_note"): (SummarizeParams, summarize_note),
 }
 
 

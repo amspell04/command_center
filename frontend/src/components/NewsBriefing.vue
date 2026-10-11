@@ -14,7 +14,7 @@ async function load() {
   loading.value = true
   error.value = null
   try {
-    // The server allows one briefing per day, so the list holds at most one.
+    // The server keeps one briefing per day (regenerating replaces it), so the list holds at most one.
     const todays = (await newsApi.today())[0]
     hasToday.value = !!todays
     if (todays) {
@@ -33,15 +33,15 @@ async function load() {
   loading.value = false
 }
 
-async function generate() {
+async function generate(replace = false) {
   generating.value = true
   error.value = null
   try {
-    briefing.value = await newsApi.refresh()
+    briefing.value = await newsApi.refresh(replace)
     hasToday.value = true
   } catch (e) {
-    // 400 means today's briefing already exists (e.g. made in another tab): show it.
-    if (e instanceof ApiError && e.status === 400) await load()
+    // 409 means today's briefing already exists (e.g. made in another tab): show it.
+    if (e instanceof ApiError && e.status === 409) await load()
     else error.value = errorMessage(e)
   }
   generating.value = false
@@ -54,8 +54,11 @@ onMounted(load)
   <section class="panel news" aria-label="News briefing">
     <header class="panel__header">
       <h2>News briefing</h2>
-      <button v-if="!hasToday && !loading" class="btn--primary btn--sm" :disabled="generating" @click="generate">
+      <button v-if="!hasToday && !loading" class="btn--primary btn--sm" :disabled="generating" @click="generate()">
         {{ generating ? 'Generating…' : 'Generate briefing' }}
+      </button>
+      <button v-else-if="!loading" class="btn--sm" :disabled="generating" @click="generate(true)">
+        {{ generating ? 'Generating…' : 'Regenerate' }}
       </button>
     </header>
 
@@ -79,9 +82,5 @@ onMounted(load)
 }
 .headline {
   font-weight: 600;
-  text-decoration: none;
-}
-.headline:hover {
-  text-decoration: underline;
 }
 </style>

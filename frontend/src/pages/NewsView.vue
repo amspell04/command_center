@@ -35,23 +35,25 @@ onMounted(load)
 
 <template>
   <main class="news">
-    <button class="back no-print" @click="router.push('/')">← Back</button>
+    <div class="page-bar no-print"><button class="nav-link" @click="router.push('/')">← Home</button></div>
 
     <p v-if="loading" class="muted">Loading…</p>
     <p v-else-if="notFound" class="muted">Briefing not found.</p>
     <p v-else-if="error" class="error" role="alert">{{ error }} <button @click="load">Retry</button></p>
 
     <article v-else-if="briefing" class="briefing">
-      <header>
-        <h1>{{ briefing.title }}</h1>
-        <small class="muted">{{ briefing.date_created }}</small>
-        <button class="no-print" @click="printBriefing">Print</button>
+      <header class="briefing__head">
+        <div>
+          <small class="briefing__date">{{ briefing.date_created }}</small>
+          <h1>{{ briefing.title }}</h1>
+        </div>
+        <button class="btn--sm no-print" @click="printBriefing">Print</button>
       </header>
-      <p class="summary">{{ briefing.summary }}</p>
+      <p class="briefing__summary">{{ briefing.summary }}</p>
 
-      <template v-if="briefing.quiz_section.length">
+      <section v-if="briefing.quiz_section.length" class="section">
         <h2>Quiz</h2>
-        <ol>
+        <ol class="quiz">
           <li v-for="(q, i) in briefing.quiz_section" :key="i">
             <details>
               <summary>{{ q.question }}</summary>
@@ -59,66 +61,104 @@ onMounted(load)
             </details>
           </li>
         </ol>
-      </template>
+      </section>
 
-      <template v-if="briefing.sources.length">
+      <section v-if="briefing.sources.length" class="section">
         <h2>Sources</h2>
-        <ul>
-          <li v-for="src in briefing.sources" :key="src">{{ src }}</li>
+        <ul class="sources">
+          <li v-for="src in briefing.sources" :key="src">
+            <a v-if="/^https?:\/\//.test(src)" :href="src" target="_blank" rel="noopener noreferrer">{{ src }}</a>
+            <template v-else>{{ src }}</template>
+          </li>
         </ul>
-      </template>
+      </section>
     </article>
   </main>
 </template>
 
 <style scoped>
 .news {
-  max-width: 1280px;
+  max-width: 760px;
   margin: 0 auto;
   padding: var(--space-5) var(--space-6);
 }
-.back {
+.briefing__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
   margin-bottom: var(--space-4);
 }
-.briefing {
-  max-width: 70ch;
-}
-.briefing header {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: var(--space-3);
+.briefing__date {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 .briefing h1 {
-  flex-basis: 100%;
+  margin: var(--space-1) 0 0;
   font-size: var(--text-2xl);
 }
-.briefing h2 {
-  margin-top: var(--space-5);
-  font-size: var(--text-xs);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-}
-.summary {
+.briefing__summary {
+  margin-bottom: var(--space-5);
   white-space: pre-wrap;
-  line-height: 1.65;
+  line-height: 1.7;
 }
-ol,
-ul {
+.section {
+  margin-top: var(--space-5);
+}
+.quiz,
+.sources {
   margin: 0;
-  padding-left: var(--space-5);
+  padding: 0;
+  list-style: none;
 }
-li {
-  margin-bottom: var(--space-2);
+.quiz {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  counter-reset: q;
 }
-summary {
+.quiz li {
+  counter-increment: q;
+  border-radius: var(--radius-lg);
+  background: var(--card-color);
+}
+.quiz summary {
+  display: flex;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
   cursor: pointer;
   font-weight: 500;
+  list-style: none;
 }
-details p {
-  margin: var(--space-2) 0 0;
+.quiz summary::-webkit-details-marker {
+  display: none;
+}
+.quiz summary::before {
+  content: counter(q);
+  flex-shrink: 0;
+  color: var(--accent-color);
+  font-weight: 700;
+}
+.quiz summary::after {
+  content: '+';
+  margin-left: auto;
   color: var(--text-muted);
+}
+.quiz details[open] summary::after {
+  content: '−';
+}
+.quiz details p {
+  margin: 0;
+  padding: 0 var(--space-4) var(--space-3) calc(var(--space-4) + var(--space-3) + 1ch);
+  color: var(--text-muted);
+}
+.sources li {
+  padding: var(--space-1) 0;
+  border-top: 1px solid var(--border-color);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
 }
 @media (max-width: 1000px) {
   .news {

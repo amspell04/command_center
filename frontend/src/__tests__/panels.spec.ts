@@ -80,6 +80,44 @@ describe('TasksPanel', () => {
     expect(w.findAll('button').some((b) => b.text().startsWith('See'))).toBe(false)
   })
 
+  const upcoming = (n: number) =>
+    Array.from({ length: n }, (_, i) =>
+      task({ id: `u${i}`, title: `Soon ${i}`, due_date: `2999-01-0${i + 1}` }),
+    )
+
+  it('shows the next 5 upcoming tasks behind a See more toggle', async () => {
+    vi.mocked(tasksApi.list).mockResolvedValue(upcoming(8) as never)
+    const { w } = await mountWith(TasksPanel)
+    expect(w.text()).toContain('Soon 4')
+    expect(w.text()).not.toContain('Soon 5')
+    await btn(w, 'See more (3)').trigger('click')
+    expect(w.text()).toContain('Soon 7')
+    await btn(w, 'See less').trigger('click')
+    expect(w.text()).not.toContain('Soon 5')
+  })
+
+  it('hides See more when 5 or fewer tasks are upcoming', async () => {
+    vi.mocked(tasksApi.list).mockResolvedValue(upcoming(5) as never)
+    const { w } = await mountWith(TasksPanel)
+    expect(w.findAll('button').some((b) => b.text().startsWith('See'))).toBe(false)
+  })
+
+  it('never caps overdue or today tasks, and toggles groups independently', async () => {
+    vi.mocked(tasksApi.list).mockResolvedValue([
+      ...Array.from({ length: 7 }, (_, i) => task({ id: `o${i}`, title: `Late ${i}`, due_date: '2000-01-01' })),
+      ...Array.from({ length: 7 }, (_, i) => task({ id: `t${i}`, title: `Now ${i}` })),
+      ...upcoming(6),
+      ...done(4),
+    ] as never)
+    const { w } = await mountWith(TasksPanel)
+    expect(w.text()).toContain('Late 6')
+    expect(w.text()).toContain('Now 6')
+    expect(w.text()).not.toContain('Soon 5')
+    await btn(w, 'See more (1)').trigger('click') // Upcoming (6 - 5) or Completed (4 - 3): both are 1
+    const seeMore = w.findAll('button').filter((b) => b.text().startsWith('See'))
+    expect(seeMore.map((b) => b.text()).sort()).toEqual(['See less', 'See more (1)'])
+  })
+
   it('shows completed vs not completed counts', async () => {
     vi.mocked(tasksApi.list).mockResolvedValue([
       ...done(2),

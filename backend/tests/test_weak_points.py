@@ -114,3 +114,31 @@ def test_deleting_a_note_deletes_its_weak_points(client, db):
     assert client.delete(f"/notes/{note['id']}").status_code == 204
     db.expire_all()
     assert db.get(type(wp), wp_id) is None
+
+
+# list all
+
+def test_list_all_spans_notes(client, db):
+    a, b = make_note(client), make_note(client, title="Other")
+    add(db, a["id"], "Mitosis")
+    add(db, b["id"], "Meiosis")
+    r = client.get("/weak_points")
+    assert r.status_code == 200 and {w["topic"] for w in r.json()} == {"Mitosis", "Meiosis"}
+
+
+def test_list_all_is_empty_with_no_weak_points(client):
+    r = client.get("/weak_points")
+    assert r.status_code == 200 and r.json() == []
+
+
+def test_list_all_filters_by_resolved(client, db):
+    note = make_note(client)
+    wp, _ = add(db, note["id"], "Mitosis")
+    add(db, note["id"], "Meiosis")
+    client.patch(f"/weak_points/{wp.id}", json={"resolved": True})
+    assert [w["topic"] for w in client.get("/weak_points?resolved=true").json()] == ["Mitosis"]
+    assert [w["topic"] for w in client.get("/weak_points?resolved=false").json()] == ["Meiosis"]
+
+
+def test_list_all_rejects_a_bad_resolved_value(client):
+    assert client.get("/weak_points?resolved=maybe").status_code == 422

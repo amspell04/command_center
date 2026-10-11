@@ -8,7 +8,7 @@ import BaseModal from './BaseModal.vue'
 const props = defineProps<{ goal?: Goal }>()
 const emit = defineEmits<{ close: []; saved: [goal: Goal]; deleted: [id: string] }>()
 
-const form = ref<NewGoal>({ title: props.goal?.title ?? '', details: props.goal?.details ?? '' })
+const form = ref({ title: props.goal?.title ?? '', details: props.goal?.details ?? '', target_date: props.goal?.target_date ?? '' })
 const error = ref<string | null>(null)
 const busy = ref(false)
 
@@ -27,7 +27,9 @@ async function run(fn: () => Promise<void>) {
 function save() {
   const title = form.value.title.trim()
   if (!title) return
-  const body = { title, details: form.value.details }
+  // An emptied date clears the deadline; a new goal without one just omits it
+  const target_date = form.value.target_date || null
+  const body: NewGoal = { title, details: form.value.details, ...(props.goal || target_date ? { target_date } : {}) }
   return run(async () => {
     emit('saved', props.goal ? await goalsApi.update(props.goal.id, body) : await goalsApi.create(body))
     emit('close')
@@ -51,6 +53,10 @@ function remove() {
       <label>
         Details
         <textarea v-model="form.details" aria-label="Goal details" rows="3" placeholder="What does hitting it look like?" />
+      </label>
+      <label>
+        Target date (optional)
+        <input v-model="form.target_date" type="date" aria-label="Goal target date" />
       </label>
       <p v-if="error" class="error" role="alert">{{ error }}</p>
       <div class="actions">

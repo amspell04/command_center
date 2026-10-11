@@ -1,7 +1,8 @@
 import uuid
 from datetime import date
 
-from fastapi import Depends, FastAPI, HTTPException, Response, status
+from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from backend.crud import goals as goals_crud
@@ -9,6 +10,7 @@ from backend.crud import news as news_crud
 from backend.crud import notes as notes_crud
 from backend.crud import tasks as tasks_crud
 from backend.crud import weak_points as weak_points_crud
+from backend.crud.training import TrainingError
 from backend.db.session import get_db
 from backend.models.goal import Goal
 from backend.models.news import News
@@ -21,6 +23,7 @@ from backend.crud.schemas.task import TaskCreate, TaskUpdate
 from backend.crud.schemas.weak_point import WeakPointUpdate
 from backend.services.api.agent_routes import router as agents_router
 from backend.services.api.study_buddy_routes import router as study_buddy_router
+from backend.services.api.training_routes import router as training_router
 from backend.services.helpers import _changes, _found, guarded
 from backend.services.news.briefing import BriefingExists, NoArticles, generate_briefing
 
@@ -28,6 +31,13 @@ from backend.services.news.briefing import BriefingExists, NoArticles, generate_
 app = FastAPI(title="Command Center API")
 app.include_router(agents_router)
 app.include_router(study_buddy_router)
+app.include_router(training_router)
+
+
+@app.exception_handler(TrainingError)
+def training_error(_: Request, exc: TrainingError):
+    return JSONResponse({"detail": str(exc)}, status_code=422)
+
 
 # NEWS
 
@@ -44,12 +54,12 @@ def get_news(news_id: uuid.UUID, db: Session = Depends(get_db)):
     return _found(news_crud.get_news(db, news_id), "Briefing")
 
 @app.post("/news/refresh", response_model=News, status_code=status.HTTP_201_CREATED)
-async def refresh_news(db: Session = Depends(get_db)):
-    """Generate today's briefing. Allowed once per day."""
+async def refresh_news(replace: bool = False, db: Session = Depends(get_db)):
+    """Generate today's briefing. Once it exists, only allowed with replace=true, which swaps it for a new one."""
     try:
-        return await guarded("news", generate_briefing(db), (BriefingExists, NoArticles))
+        return await guarded("news", generate_briefing(db, replace), (BriefingExists, NoArticles))
     except BriefingExists as e:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+        raise HTTPException(status.HTTP_409_CONFLICT, str(e))
     except NoArticles as e:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(e))
 
@@ -91,6 +101,10 @@ def create_note(body: NoteCreate, db: Session = Depends(get_db)):
 def list_notes(q: str | None = None, db: Session = Depends(get_db)):
     return notes_crud.list_notes(db, q)
 
+@app.get("/notes/{note_id}", response_model=Note)
+def get_note(note_id: uuid.UUID, db: Session = Depends(get_db)):
+    return _found(notes_crud.get_note(db, note_id), "Note")
+
 @app.patch("/notes/{note_id}", response_model=Note)
 def update_notes(note_id: uuid.UUID, body: NoteUpdate, db: Session = Depends(get_db)):
     return _found(notes_crud.update_note(db, note_id, **_changes(body)), "Note")
@@ -101,6 +115,10 @@ def delete_note(note_id: uuid.UUID, db: Session = Depends(get_db)):
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 # WEAK POINTS
+
+@app.get("/weak_points", response_model=list[WeakPoint])
+def list_all_weak_points(resolved: bool | None = None, db: Session = Depends(get_db)):
+    return weak_points_crud.list_all_weak_points(db, resolved)
 
 @app.get("/notes/{note_id}/weak_points", response_model=list[WeakPoint])
 def list_weak_points(note_id: uuid.UUID, resolved: bool | None = None, db: Session = Depends(get_db)):
@@ -128,7 +146,7 @@ def list_goals(db: Session = Depends(get_db)):
 
 @app.patch("/goals/{goal_id}", response_model=Goal)
 def update_goal(goal_id: uuid.UUID, body: GoalUpdate, db: Session = Depends(get_db)):
-    return _found(goals_crud.update_goal(db, goal_id, **_changes(body)), "Goal")
+    return _found(goals_crud.update_goal(db, goal_id, **_changes(body, nullable=("target_date",))), "Goal")
 
 @app.delete("/goals/{goal_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_goal(goal_id: uuid.UUID, db: Session = Depends(get_db)):

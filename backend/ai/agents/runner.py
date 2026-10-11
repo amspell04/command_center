@@ -25,7 +25,7 @@ async def load_tools(allowed: Iterable[str]):
         raise RuntimeError(f"MCP server is missing tools: {sorted(missing)}")
     return [by_name[name] for name in allowed]
 
-@traceable(run_type="chain")
+@traceable(run_type="chain", name="run_agent")
 async def run_agent(
     name: str,
     system_prompt: str,
@@ -41,7 +41,9 @@ async def run_agent(
     allowed = list(allowed_tools)
     tools = await load_tools(allowed) if allowed else []
     agent = create_agent(get_llm(name), tools, system_prompt=system_prompt, name=name, response_format=response_format)
-    result = await agent.ainvoke({"messages": [{"role": "user", "content": message}]})
+    result = await agent.ainvoke(
+        {"messages": [{"role": "user", "content": message}]}, {"run_name": f"{name}_agent", "tags": [name]}
+    )
     messages = result["messages"]
     if response_format:
         output = result.get("structured_response")
@@ -52,6 +54,7 @@ async def run_agent(
     return {"output": output, "messages": messages}
 
 
+@traceable(run_type="chain", name="stream_agent")
 async def stream_agent(
     name: str, system_prompt: str, tools: list, messages: list[dict], recursion_limit: int = 25
 ) -> AsyncIterator:
@@ -61,6 +64,8 @@ async def stream_agent(
     """
     agent = create_agent(get_llm(name), tools, system_prompt=system_prompt, name=name)
     async for chunk, _metadata in agent.astream(
-        {"messages": messages}, {"recursion_limit": recursion_limit}, stream_mode="messages"
+        {"messages": messages},
+        {"recursion_limit": recursion_limit, "run_name": f"{name}_agent", "tags": [name]},
+        stream_mode="messages",
     ):
         yield chunk

@@ -15,10 +15,10 @@ from backend.config import settings
 logger = logging.getLogger(__name__)
 
 
-def _changes(body: BaseModel) -> dict:
-    """Fields the client actually sent. Rejects empty bodies and explicit nulls."""
+def _changes(body: BaseModel, nullable: tuple[str, ...] = ()) -> dict:
+    """Fields the client actually sent. Rejects empty bodies and explicit nulls, except for `nullable` fields."""
     changes = body.model_dump(exclude_unset=True, mode="json")
-    if not changes or any(v is None for v in changes.values()):
+    if not changes or any(v is None and k not in nullable for k, v in changes.items()):
         raise HTTPException(422, "Send at least one field, none may be null")
     return changes
 
@@ -36,7 +36,7 @@ async def guarded(label: str, work: Awaitable, passthrough: tuple[type[Exception
     """
     try:
         return await asyncio.wait_for(work, settings.agent_timeout_seconds)
-    except passthrough:
+    except (HTTPException, *passthrough):
         raise
     except asyncio.TimeoutError:
         raise HTTPException(504, "The agent timed out")

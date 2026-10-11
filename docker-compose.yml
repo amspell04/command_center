@@ -1,3 +1,19 @@
+x-backend-env: &backend-env
+  DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-command_center}:${POSTGRES_PASSWORD:-command_center}@db:5432/${POSTGRES_DB:-command_center}
+  OLLAMA_BASE_URL: http://ollama:11434
+  MCP_URL: http://mcp:8765/mcp
+
+x-backend: &backend
+  build:
+    context: .
+    dockerfile: backend/Dockerfile
+  image: command-center-backend
+  env_file: .env
+  environment: *backend-env
+  volumes:
+    - ./backend:/app/backend
+    - ./alembic.ini:/app/alembic.ini
+
 services:
   db:
     image: postgres:16
@@ -6,7 +22,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-command_center}
       POSTGRES_DB: ${POSTGRES_DB:-command_center}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -15,5 +31,76 @@ services:
       timeout: 3s
       retries: 10
 
+  ollama:
+    image: ollama/ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # One-shot: pulls the model into the ollama volume, then exits.
+  ollama-pull:
+    image: ollama/ollama
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: ollama:11434
+    entrypoint: ["ollama", "pull", "${OLLAMA_MODEL:-qwen3.5:2b}"]
+    restart: "no"
+
+  # One-shot: applies migrations, then exits.
+  migrate:
+    <<: *backend
+    command: alembic upgrade head
+    restart: "no"
+
+  api:
+    <<: *backend
+    command: uvicorn backend.services.api.api:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      ollama-pull:
+        condition: service_completed_successfully
+
+  mcp:
+    <<: *backend
+    command: python -m backend.services.mcp.server
+    environment:
+      <<: *backend-env
+      MCP_HOST: 0.0.0.0
+    ports:
+      - "8765:8765"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  frontend:
+    image: node:20-alpine
+    working_dir: /app
+    # node_modules lives in a named volume so host (macOS) binaries are never mixed with container ones.
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    environment:
+      API_PROXY_TARGET: http://api:8000
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+    depends_on:
+      - api
+
 volumes:
   pgdata:
+  ollama:
+  frontend_node_modules:

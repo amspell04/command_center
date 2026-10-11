@@ -1,15 +1,24 @@
 <script setup lang="ts">
+import { RouterLink } from 'vue-router'
 import GoalsPanel from '@/components/GoalsPanel.vue'
 import NewsBriefing from '@/components/NewsBriefing.vue'
 import NotesPanel from '@/components/NotesPanel.vue'
+import ProgressTicker from '@/components/ProgressTicker.vue'
 import TasksPanel from '@/components/TasksPanel.vue'
 import TodayPanel from '@/components/TodayPanel.vue'
 import WeekTimeline from '@/components/WeekTimeline.vue'
 </script>
 
 <template>
+  <ProgressTicker />
   <main class="home">
-    <WeekTimeline class="home__week" />
+    <div class="home__week">
+      <nav class="home__nav" aria-label="Sections">
+        <RouterLink to="/calendar" class="nav-link">Calendar →</RouterLink>
+        <RouterLink to="/training" class="nav-link">Training →</RouterLink>
+      </nav>
+      <WeekTimeline />
+    </div>
     <TodayPanel class="home__col home__today" />
     <TasksPanel class="home__col home__tasks" />
     <aside class="home__col home__side">
@@ -23,7 +32,7 @@ import WeekTimeline from '@/components/WeekTimeline.vue'
 <style scoped>
 .home {
   display: grid;
-  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) minmax(0, 1fr);
   grid-template-areas:
     'week week week'
     'today tasks side';
@@ -35,6 +44,12 @@ import WeekTimeline from '@/components/WeekTimeline.vue'
   grid-area: week;
   padding-bottom: var(--space-3);
   border-bottom: 1px solid var(--border-color);
+}
+.home__nav {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-1);
+  margin-bottom: var(--space-1);
 }
 .home__col {
   padding: var(--space-3) var(--space-4);

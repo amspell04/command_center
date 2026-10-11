@@ -150,13 +150,46 @@ def test_refresh_creates_todays_briefing(client, monkeypatch):
     assert [n["id"] for n in client.get("/news/today").json()] == [r.json()["id"]]
 
 
-def test_refresh_twice_returns_400_and_does_no_work(client, monkeypatch):
+def test_refresh_twice_returns_409_and_does_no_work(client, monkeypatch):
     spy = Spy(monkeypatch)
     assert client.post("/news/refresh").status_code == 201
     r = client.post("/news/refresh")
-    assert r.status_code == 400 and "already exists" in r.json()["detail"]
+    assert r.status_code == 409 and "already exists" in r.json()["detail"]
     assert (spy.fetched, spy.summarized) == (1, 1)
     assert len(client.get("/news/today").json()) == 1
+
+
+def test_refresh_replace_swaps_todays_briefing(client, monkeypatch):
+    spy = Spy(monkeypatch)
+    first = client.post("/news/refresh").json()
+    spy.summary = NewsCreate(title="Second", summary="More happened.")
+    r = client.post("/news/refresh?replace=true")
+    assert r.status_code == 201 and r.json()["title"] == "Second"
+    assert [n["id"] for n in client.get("/news/today").json()] == [r.json()["id"]]
+    assert client.get(f"/news/{first['id']}").status_code == 404
+
+
+def test_refresh_replace_with_no_existing_briefing_just_creates(client, monkeypatch):
+    Spy(monkeypatch)
+    assert client.post("/news/refresh?replace=true").status_code == 201
+    assert len(client.get("/news/today").json()) == 1
+
+
+@pytest.mark.parametrize("exc, status", [(ConnectionError("ollama down"), 503), (ValueError("x"), 503)])
+def test_failed_replace_keeps_existing_briefing(client, monkeypatch, exc, status):
+    Spy(monkeypatch)
+    first = client.post("/news/refresh").json()
+    Spy(monkeypatch, exc=exc)
+    assert client.post("/news/refresh?replace=true").status_code == status
+    assert [n["id"] for n in client.get("/news/today").json()] == [first["id"]]
+
+
+def test_replace_with_no_articles_keeps_existing_briefing(client, monkeypatch):
+    Spy(monkeypatch)
+    first = client.post("/news/refresh").json()
+    Spy(monkeypatch, articles=())
+    assert client.post("/news/refresh?replace=true").status_code == 502
+    assert [n["id"] for n in client.get("/news/today").json()] == [first["id"]]
 
 
 def test_refresh_with_no_articles_is_502_and_stores_nothing(client, monkeypatch):

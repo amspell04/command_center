@@ -21,12 +21,18 @@ class NoArticles(Exception):
 _lock = asyncio.Lock()
 
 
-async def generate_briefing(db: Session) -> News:
+async def generate_briefing(db: Session, replace: bool = False) -> News:
+    """Create today's briefing. With replace, the existing one is deleted only after the new one is stored."""
     async with _lock:
-        if news_crud.list_todays_news(db):
+        existing = news_crud.list_todays_news(db)
+        if existing and not replace:
             raise BriefingExists("Today's briefing already exists")
+        old_ids = [n.id for n in existing]
         articles = await fetch_articles()
         if not articles:
             raise NoArticles("No recent articles could be fetched")
         text, sources = format_for_agent(articles)
-        return news_crud.create_news(db, await summarize_news(text, sources))
+        created = news_crud.create_news(db, await summarize_news(text, sources))
+        for old_id in old_ids:
+            news_crud.delete_news(db, old_id)
+        return created

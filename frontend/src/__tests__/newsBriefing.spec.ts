@@ -52,6 +52,27 @@ describe('NewsBriefing', () => {
     expect(newsApi.latest).not.toHaveBeenCalled()
   })
 
+  it("offers Regenerate when today's briefing exists and replaces it", async () => {
+    vi.mocked(newsApi.today).mockResolvedValue([news()] as never)
+    vi.mocked(newsApi.refresh).mockResolvedValue(news({ id: 'b2', title: 'Fresh briefing' }) as never)
+    const w = await mountPanel()
+    await btn(w, 'Regenerate')!.trigger('click')
+    await flushPromises()
+    expect(newsApi.refresh).toHaveBeenCalledWith(true)
+    expect(w.get('a.headline').attributes('href')).toBe('/news/b2')
+  })
+
+  it('keeps the existing briefing and shows the error when regenerating fails', async () => {
+    vi.mocked(newsApi.today).mockResolvedValue([news()] as never)
+    vi.mocked(newsApi.refresh).mockRejectedValue(new ApiError(502, 'No recent articles'))
+    const w = await mountPanel()
+    await btn(w, 'Regenerate')!.trigger('click')
+    await flushPromises()
+    expect(w.get('[role="alert"]').text()).toContain('No recent articles')
+    expect(w.get('a.headline').text()).toBe('Morning briefing')
+    expect(btn(w, 'Regenerate')!.attributes('disabled')).toBeUndefined()
+  })
+
   it('does not render the full briefing on the home page', async () => {
     vi.mocked(newsApi.today).mockResolvedValue([
       news({ quiz_section: [{ question: 'Q1?', answer: 'A1' }], sources: ['https://x.test'] }),
@@ -100,10 +121,10 @@ describe('NewsBriefing', () => {
     expect(w.get('a.headline').text()).toBe('Morning briefing')
   })
 
-  it('on a 400 shows the briefing that already exists', async () => {
+  it('on a 409 shows the briefing that already exists', async () => {
     vi.mocked(newsApi.today).mockResolvedValueOnce([]).mockResolvedValueOnce([news()] as never)
     vi.mocked(newsApi.latest).mockRejectedValue(new ApiError(404, 'x'))
-    vi.mocked(newsApi.refresh).mockRejectedValue(new ApiError(400, 'exists'))
+    vi.mocked(newsApi.refresh).mockRejectedValue(new ApiError(409, 'exists'))
     const w = await mountPanel()
     await btn(w, 'Generate briefing')!.trigger('click')
     await flushPromises()
