@@ -13,6 +13,7 @@ const news = (o = {}) => ({
   id: 'b1',
   title: 'Morning briefing',
   summary: 'Things happened.',
+  body: 'Long details of the events.',
   quiz_section: [{ question: 'What happened?', answer: 'Things.' }],
   sources: ['https://example.com/feed'],
   date_created: '2026-01-01',
@@ -42,7 +43,8 @@ describe('NewsView', () => {
     const { w } = await open('b1')
     expect(newsApi.get).toHaveBeenCalledWith('b1')
     expect(w.text()).toContain('Morning briefing')
-    expect(w.text()).toContain('Things happened.')
+    expect(w.get('[data-testid="briefing-summary"]').text()).toBe('Things happened.')
+    expect(w.get('[data-testid="briefing-body"]').text()).toBe('Long details of the events.')
     expect(w.text()).toContain('What happened?')
     expect(w.text()).toContain('https://example.com/feed')
   })

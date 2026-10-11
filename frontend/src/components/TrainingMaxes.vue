@@ -4,12 +4,12 @@ import { errorMessage, trainingApi } from '../api'
 import type { Lift, TrainingMax } from '../types'
 import { localToday } from '../utils/dates'
 import { LIFT_LABEL, LIFTS, lbToKg } from '../utils/training'
+import BaseModal from './BaseModal.vue'
 
-// The maxes a program's percentages are taken from. Saving records today's max and keeps the history.
+// The maxes a program's percentages are taken from, one block per lift. Saving records today's max and keeps the history.
 const emit = defineEmits<{ saved: [] }>()
 
 const maxes = ref<TrainingMax[]>([])
-const inputs = ref<Record<Lift, string>>({ SQUAT: '', BENCH: '', DEADLIFT: '' })
 const loading = ref(true)
 const loadFailed = ref(false)
 const error = ref<string | null>(null)
@@ -25,21 +25,31 @@ const current = computed(() => {
   return found
 })
 
-const parsed = (lift: Lift) => {
-  const n = Number(inputs.value[lift])
-  return inputs.value[lift].trim() !== '' && Number.isFinite(n) && n > 0 && n <= 2000 ? n : null
+const parsed = (raw: string) => {
+  const n = Number(raw)
+  return raw.trim() !== '' && Number.isFinite(n) && n > 0 && n <= 2000 ? n : null
 }
-const changed = computed(() => LIFTS.filter((l) => parsed(l) !== null && parsed(l) !== (current.value[l]?.weight_lb ?? null)))
-const invalid = computed(() => LIFTS.some((l) => inputs.value[l].trim() !== '' && parsed(l) === null))
 
-function fill() {
-  for (const l of LIFTS) inputs.value[l] = current.value[l] ? String(current.value[l]!.weight_lb) : ''
+// The lift being edited in the modal, if any
+const editing = ref<Lift | null>(null)
+const input = ref('')
+const value = computed(() => parsed(input.value))
+const invalid = computed(() => input.value.trim() !== '' && value.value === null)
+const unchanged = computed(() => editing.value !== null && value.value === (current.value[editing.value]?.weight_lb ?? null))
+
+function edit(lift: Lift) {
+  editing.value = lift
+  input.value = current.value[lift] ? String(current.value[lift]!.weight_lb) : ''
+  error.value = null
+}
+
+function close() {
+  editing.value = null
 }
 
 async function load() {
   try {
     maxes.value = await trainingApi.maxes()
-    fill()
   } catch {
     loadFailed.value = true
   } finally {
@@ -48,15 +58,14 @@ async function load() {
 }
 
 async function save() {
+  if (editing.value === null || value.value === null || unchanged.value) return
   error.value = null
   busy.value = true
   try {
-    for (const lift of changed.value) {
-      await trainingApi.setMax({ lift, weight: parsed(lift)!, effective_date: localToday() })
-    }
+    await trainingApi.setMax({ lift: editing.value, weight: value.value, effective_date: localToday() })
     maxes.value = await trainingApi.maxes()
-    fill()
     emit('saved')
+    close()
   } catch (e) {
     error.value = errorMessage(e)
   } finally {
@@ -70,30 +79,90 @@ onMounted(load)
 <template>
   <section class="section maxes">
     <h2>Training maxes</h2>
-    <p class="muted">Program percentages are taken from these. Saving a new number keeps your history.</p>
     <p v-if="loading" class="muted">Loading…</p>
     <p v-else-if="loadFailed" class="error" role="alert">Could not load training maxes.</p>
-    <form v-else class="maxes__form" @submit.prevent="save">
-      <label v-for="lift in LIFTS" :key="lift" class="field">
-        {{ LIFT_LABEL[lift] }} (lb)
-        <input v-model="inputs[lift]" :aria-label="`${LIFT_LABEL[lift]} max in lb`" inputmode="decimal" placeholder="Not set" />
-        <span class="muted" :data-testid="`kg-${lift}`">{{ parsed(lift) ? `${lbToKg(parsed(lift)!)} kg` : '' }}</span>
-      </label>
-      <p v-if="invalid" class="error" role="alert">Enter a weight between 0 and 2000 lb.</p>
-      <p v-if="error" class="error" role="alert">{{ error }}</p>
-      <button type="submit" class="btn--primary" :disabled="busy || invalid || !changed.length">Save maxes</button>
-    </form>
+    <div v-else class="maxes__blocks">
+      <article v-for="lift in LIFTS" :key="lift" class="max-block" :data-testid="`max-${lift}`">
+        <h3>{{ LIFT_LABEL[lift] }}</h3>
+        <template v-if="current[lift]">
+          <p class="max-block__weight">{{ current[lift]!.weight_lb }}<span class="max-block__unit"> lb</span></p>
+          <p class="muted">{{ lbToKg(current[lift]!.weight_lb) }} kg · since {{ current[lift]!.effective_date }}</p>
+        </template>
+        <template v-else>
+          <p class="max-block__weight max-block__weight--empty">Not set</p>
+          <p class="muted">Program weights stay blank until this is set.</p>
+        </template>
+        <button type="button" class="btn--sm" :aria-label="`Edit ${LIFT_LABEL[lift]} max`" @click="edit(lift)">Edit</button>
+      </article>
+    </div>
+
+    <BaseModal v-if="editing" :title="`${LIFT_LABEL[editing]} max`" @close="close">
+      <form class="maxes__form" @submit.prevent="save">
+        <label class="field">
+          Max (lb)
+          <input v-model="input" :aria-label="`${LIFT_LABEL[editing]} max in lb`" inputmode="decimal" placeholder="Not set" />
+          <span class="muted" data-testid="kg">{{ value ? `${lbToKg(value)} kg` : '' }}</span>
+        </label>
+        <p class="muted">Saving a new number keeps your history.</p>
+        <p v-if="invalid" class="error" role="alert">Enter a weight between 0 and 2000 lb.</p>
+        <p v-if="error" class="error" role="alert">{{ error }}</p>
+        <button type="submit" class="btn--primary" :disabled="busy || invalid || value === null || unchanged">Save max</button>
+      </form>
+    </BaseModal>
   </section>
 </template>
 
 <style scoped>
+.maxes__blocks {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+.max-block {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+  padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-lg);
+  background: var(--card-color);
+}
+.max-block h3 {
+  margin: 0;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.max-block p {
+  margin: 0;
+}
+.max-block__weight {
+  font-size: 2.5rem;
+  font-weight: 700;
+  line-height: 1.1;
+}
+.max-block__weight--empty {
+  font-size: var(--text-xl);
+  color: var(--text-muted);
+}
+.max-block__unit {
+  font-size: var(--text-lg);
+  font-weight: 500;
+  color: var(--text-muted);
+}
+.max-block button {
+  margin-top: var(--space-3);
+}
 .maxes__form {
   display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
+  flex-direction: column;
   gap: var(--space-3);
 }
-input {
-  width: 8rem;
+@media (max-width: 700px) {
+  .maxes__blocks {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 </style>

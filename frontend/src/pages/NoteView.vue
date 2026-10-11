@@ -5,6 +5,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import ConfirmModal from '../components/ConfirmModal.vue'
 import NoteAgentActions from '../components/NoteAgentActions.vue'
+import NoteStudyBuddy from '../components/NoteStudyBuddy.vue'
 import { ApiError, errorMessage, notesApi } from '../api'
 import type { Note } from '../types'
 
@@ -25,6 +26,7 @@ const loading = ref(true)
 const notFound = ref(false)
 const error = ref<string | null>(null)
 const confirmingDelete = ref(false)
+const studying = ref(false)
 
 const snapshot = () => JSON.stringify([title.value, content.value])
 const dirty = computed(() => !loading.value && snapshot() !== saved.value)
@@ -118,6 +120,7 @@ onMounted(load)
           :stale="summary.summary_stale"
           @summarized="applyNote"
         />
+        <button type="button" :aria-pressed="studying" @click="studying = !studying">Study buddy</button>
         <div class="note__end">
           <button type="button" class="btn--ghost btn--danger" @click="confirmingDelete = true">Delete note</button>
           <button type="button" class="btn--primary" :disabled="!dirty" @click="save">
@@ -149,6 +152,8 @@ onMounted(load)
       </div>
     </div>
     <p v-if="error && (loading || notFound)" class="error" role="alert">{{ error }}</p>
+
+    <NoteStudyBuddy v-if="studying" :note-id="id" :unsaved="dirty" @close="studying = false" />
 
     <ConfirmModal
       v-if="confirmingDelete"

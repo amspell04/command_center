@@ -72,40 +72,63 @@ describe('training utils', () => {
 describe('TrainingMaxes', () => {
   async function mountMaxes(maxes: object[] = [max()]) {
     api.maxes.mockResolvedValue(maxes as never)
-    const w = mount(TrainingMaxes)
+    const w = mount(TrainingMaxes, { global: { stubs: { teleport: true } } })
     await flushPromises()
     return w
   }
+  const edit = (w: Awaited<ReturnType<typeof mountMaxes>>, lift: string) => w.get(`[aria-label="Edit ${lift} max"]`).trigger('click')
 
-  it('prefills the current max and shows kg as you type', async () => {
+  it('shows a block per lift with the weight in both units, and "Not set" for a lift without one', async () => {
     const w = await mountMaxes()
-    const squat = w.get('[aria-label="Squat max in lb"]')
-    expect((squat.element as HTMLInputElement).value).toBe('400')
-    await squat.setValue('405')
-    expect(w.get('[data-testid="kg-SQUAT"]').text()).toBe('183.7 kg')
+    expect(w.findAll('.max-block')).toHaveLength(3)
+    expect(w.get('[data-testid="max-SQUAT"]').text()).toContain('400')
+    expect(w.get('[data-testid="max-SQUAT"]').text()).toContain('181.4 kg')
+    expect(w.get('[data-testid="max-BENCH"]').text()).toContain('Not set')
+    expect(w.find('form').exists()).toBe(false)
   })
 
   it('uses the newest max already in force, not a future one', async () => {
     const w = await mountMaxes([max({ weight_lb: 400 }), max({ id: 'm2', weight_lb: 420, effective_date: '2021-01-01' }), max({ id: 'm3', weight_lb: 999, effective_date: '2999-01-01' })])
-    expect((w.get('[aria-label="Squat max in lb"]').element as HTMLInputElement).value).toBe('420')
+    expect(w.get('[data-testid="max-SQUAT"]').text()).toContain('420')
   })
 
-  it('saves only the lifts that changed, dated today, and tells the page', async () => {
+  it('opens the editor prefilled and shows kg as you type', async () => {
+    const w = await mountMaxes()
+    await edit(w, 'Squat')
+    const input = w.get('[aria-label="Squat max in lb"]')
+    expect((input.element as HTMLInputElement).value).toBe('400')
+    await input.setValue('405')
+    expect(w.get('[data-testid="kg"]').text()).toBe('183.7 kg')
+  })
+
+  it('saves the edited lift dated today, shows the new value, closes and tells the page', async () => {
     const w = await mountMaxes()
     api.setMax.mockResolvedValue(max({ weight_lb: 405 }) as never)
+    api.maxes.mockResolvedValue([max({ weight_lb: 405 })] as never)
+    await edit(w, 'Squat')
     await w.get('[aria-label="Squat max in lb"]').setValue('405')
+    await w.get('form').trigger('submit')
+    await flushPromises()
+    expect(api.setMax.mock.calls).toEqual([[{ lift: 'SQUAT', weight: 405, effective_date: localToday() }]])
+    expect(w.emitted('saved')).toHaveLength(1)
+    expect(w.find('form').exists()).toBe(false)
+    expect(w.get('[data-testid="max-SQUAT"]').text()).toContain('405')
+  })
+
+  it('sets a lift that had no max', async () => {
+    const w = await mountMaxes()
+    api.setMax.mockResolvedValue(max({ lift: 'BENCH', weight_lb: 275 }) as never)
+    await edit(w, 'Bench')
+    expect((w.get('[aria-label="Bench max in lb"]').element as HTMLInputElement).value).toBe('')
     await w.get('[aria-label="Bench max in lb"]').setValue('275')
     await w.get('form').trigger('submit')
     await flushPromises()
-    expect(api.setMax.mock.calls).toEqual([
-      [{ lift: 'SQUAT', weight: 405, effective_date: localToday() }],
-      [{ lift: 'BENCH', weight: 275, effective_date: localToday() }],
-    ])
-    expect(w.emitted('saved')).toHaveLength(1)
+    expect(api.setMax).toHaveBeenCalledWith({ lift: 'BENCH', weight: 275, effective_date: localToday() })
   })
 
-  it('blocks saving when nothing changed or a value is not a valid weight', async () => {
+  it('blocks saving when nothing changed, it is empty, or the value is not a valid weight', async () => {
     const w = await mountMaxes()
+    await edit(w, 'Squat')
     const button = w.get('button[type="submit"]')
     expect(button.attributes('disabled')).toBeDefined()
     for (const bad of ['abc', '0', '-5', '2500']) {
@@ -113,12 +136,16 @@ describe('TrainingMaxes', () => {
       expect(button.attributes('disabled')).toBeDefined()
       expect(w.text()).toContain('Enter a weight')
     }
+    await w.get('[aria-label="Squat max in lb"]').setValue('')
+    expect(button.attributes('disabled')).toBeDefined()
+    await w.get('form').trigger('submit')
     expect(api.setMax).not.toHaveBeenCalled()
   })
 
-  it('shows the server error and does not announce a save when saving fails', async () => {
+  it('shows the server error, stays open and does not announce a save when saving fails', async () => {
     const w = await mountMaxes()
     api.setMax.mockRejectedValue(new ApiError(422, 'Nope'))
+    await edit(w, 'Squat')
     await w.get('[aria-label="Squat max in lb"]').setValue('405')
     await w.get('form').trigger('submit')
     await flushPromises()
@@ -126,11 +153,20 @@ describe('TrainingMaxes', () => {
     expect(w.emitted('saved')).toBeUndefined()
   })
 
+  it('closes without saving', async () => {
+    const w = await mountMaxes()
+    await edit(w, 'Squat')
+    await w.get('[aria-label="Close"]').trigger('click')
+    expect(w.find('form').exists()).toBe(false)
+    expect(api.setMax).not.toHaveBeenCalled()
+  })
+
   it('shows a load error', async () => {
     api.maxes.mockRejectedValue(new ApiError(0, 'down'))
     const w = mount(TrainingMaxes)
     await flushPromises()
     expect(w.text()).toContain('Could not load training maxes')
+    expect(w.find('.max-block').exists()).toBe(false)
   })
 })
 

@@ -31,12 +31,19 @@ export interface NewsQuizQuestion {
   answer: string
 }
 
+export interface NewsArticleLink {
+  title: string
+  url: string
+}
+
 export interface News {
   id: string
   title: string
   summary: string
+  body: string
   quiz_section: NewsQuizQuestion[]
   sources: string[]
+  articles: NewsArticleLink[]
   date_created: string
 }
 
@@ -95,6 +102,22 @@ export interface WeakPoint {
   resolved: boolean
   date_created: string
 }
+
+// Study buddy stream (backend/services/api/study_buddy_routes.py)
+
+export type StudyMode = 'quiz' | 'review'
+
+export interface ChatMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+export type StudyBuddyEvent =
+  | { type: 'token'; text: string }
+  | { type: 'weak_point'; topic: string }
+  | { type: 'weak_point_resolved'; topic: string }
+  | { type: 'done' }
+  | { type: 'error'; message: string }
 
 // Training (backend/models/training.py). Weights are stored in lb; kg is derived by the backend.
 

@@ -251,3 +251,10 @@ def test_prompt_keeps_the_program_fixed_and_has_its_date_placeholder():
     prompt = load_prompt("balance_week")
     assert "{today}" in prompt
     assert "Never suggest skipping or moving a gym session" in prompt
+
+
+def test_prompt_asks_for_food_water_and_caffeine_guidance_with_a_caffeine_cap():
+    prompt = load_prompt("balance_week")
+    for word in ("food", "water", "caffeine", "sleep"):
+        assert word in prompt.lower()
+    assert "400 mg" in prompt

@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 FEEDS_FILE = Path(__file__).with_name("feeds.json")
 MAX_PER_FEED = 10  # newest first, so one busy feed cannot crowd out the rest of the small context window
 SUMMARY_CHARS = 200
+TOP_LINKS = 5
 FETCH_TIMEOUT = 15.0
 
 
@@ -85,6 +86,12 @@ async def fetch_articles(
             seen.add(key)
             unique.append(article)
     return unique
+
+
+def top_links(articles: list[Article], limit: int = TOP_LINKS) -> list[dict[str, str]]:
+    """Links to the newest articles, shown with the briefing. Entries without an http(s) link are skipped."""
+    links = [{"title": a.title, "url": a.link} for a in articles if urlparse(a.link).scheme in ("http", "https")]
+    return links[:limit]
 
 
 def format_for_agent(articles: list[Article]) -> tuple[str, list[str]]:

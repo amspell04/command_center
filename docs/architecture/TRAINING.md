@@ -19,13 +19,15 @@ Weights are stored and entered in lb. kg is always derived (`lb / 2.20462`, one 
 - `gym_day` prefers a logged session over the plan, so the same lookup feeds the timeline markers and the agent.
 
 ## Balance my week (agent action)
-`POST /agents/training/actions/balance_week` follows the `plan_day` pattern: one structured model call, no tools. It takes the browser's date (`date` in the body), which sets the week and the prompt's "today". The route builds the Monday to Sunday week itself: tasks due and done per day, the gym session per day, the program week, and the soonest upcoming goal date as the meet. The model only returns a status (`BALANCED`, `TIGHT`, `OVERLOADED`), a short summary and up to four dated suggestions. The route drops suggestions outside the week or before the planned date, blank or repeated ones, and skips the model when the week has no gym days. The prompt forbids moving or skipping sessions because the program is fixed. Tasks have no stored time estimate, so load is judged from task counts.
+`POST /agents/training/actions/balance_week` follows the `plan_day` pattern: one structured model call, no tools. It takes the browser's date (`date` in the body), which sets the week and the prompt's "today". The route builds the Monday to Sunday week itself: tasks due and done per day, the gym session per day, the program week, and the soonest upcoming goal date as the meet. The model only returns a status (`BALANCED`, `TIGHT`, `OVERLOADED`), a short summary and up to four dated suggestions. The route drops suggestions outside the week or before the planned date, blank or repeated ones, and skips the model when the week has no gym days. The prompt forbids moving or skipping sessions because the program is fixed. Tasks have no stored time estimate, so load is judged from task counts. The prompt also asks for food, water and caffeine guidance on gym days, scaled to the session and the task load (for example caffeine later in the day and extra sleep after a crowded day before a heavy lift), with a caffeine cap. That guidance is returned as dated suggestions, so it shares the four-suggestion limit.
 
 ## Frontend (`/training`)
-- `WorkoutLog`: pick a date; a planned day is prefilled with one row per set and computed weights, a logged day opens for editing. Saving a logged date replaces its sets.
+- The page opens with `TrainingMaxes`, then progress, week balance and the program editor. A `Log a workout` button in the page bar opens `WorkoutLog` in a modal.
+- `WorkoutLog` (modal): pick a date; a planned day is prefilled with one row per set and computed weights, a logged day opens for editing. Saving a logged date replaces its sets.
 - `TrainingProgress`: per lift the latest estimated 1RM, change since the first session, a chart placed by calendar date and the most recent records (a record is a session whose best set beat every earlier one).
 - `WeekBalance`: runs the agent action (sending today's local date) and shows its result beside the server's own day table.
-- `TrainingMaxes` and `ProgramEditor`: set maxes; edit the program as a table per week where each cell saves on change, with week copy.
+- `TrainingMaxes`: one large block per lift showing the current max in lb and kg, with an Edit button that opens a modal for that lift. Saving records a new dated max and keeps history.
+- `ProgramEditor`: edit the program as a table per week where each cell saves on change, with week copy.
 - `WeekTimeline` and `TodayPanel` show gym days through `useGymWeek`. A failed load shows no markers and no error.
 - `GoalModal` has the optional target date; clearing it sends null (`target_date` is the only nullable PATCH field).
 

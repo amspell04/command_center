@@ -64,7 +64,7 @@ class FakeLLM:
 
     async def ainvoke(self, messages):
         self.prompt = messages
-        return NewsCreate(title="t", summary="s", sources=["model-made-up"])
+        return NewsCreate(title="t", summary="s", body="b", sources=["model-made-up"])
 
 
 @pytest.mark.asyncio
@@ -82,6 +82,18 @@ async def test_summarize_news_truncates_input(monkeypatch):
     monkeypatch.setattr(news_llm, "get_llm", lambda name: llm)
     await news_llm.summarize_news("x" * (news_llm.MAX_INPUT_CHARS + 500), [])
     assert len(llm.prompt[1].content) == news_llm.MAX_INPUT_CHARS
+
+
+@pytest.mark.asyncio
+async def test_summarize_news_prompt_asks_for_top_three_events_in_paragraphs(monkeypatch):
+    llm = FakeLLM()
+    monkeypatch.setattr(news_llm, "get_llm", lambda name: llm)
+    await news_llm.summarize_news("a", [])
+    system = llm.prompt[0].content
+    assert "3 most significant events" in system
+    assert "summary: 2-3 plain sentences" in system
+    assert "body: 2-3 markdown paragraphs" in system
+    assert "Do not invent details" in system
 
 
 @pytest.mark.asyncio

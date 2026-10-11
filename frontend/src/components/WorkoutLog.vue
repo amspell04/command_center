@@ -4,11 +4,12 @@ import { errorMessage, trainingApi } from '../api'
 import type { Exercise, Lift, WorkoutSession } from '../types'
 import { localToday, longDate } from '../utils/dates'
 import { LIFT_LABEL, LIFTS, lbToKg } from '../utils/training'
+import BaseModal from './BaseModal.vue'
 import ConfirmModal from './ConfirmModal.vue'
 
 // Log what you lifted on a day. A day with a program prescription starts filled in with the planned sets and weights;
 // a day that is already logged opens for editing. Saving a date again replaces that day's sets.
-const emit = defineEmits<{ saved: [session: WorkoutSession]; deleted: [] }>()
+const emit = defineEmits<{ close: []; saved: [session: WorkoutSession]; deleted: [] }>()
 
 interface Row {
   key: number
@@ -144,8 +145,7 @@ onMounted(load)
 </script>
 
 <template>
-  <section class="section log">
-    <h2>Log a workout</h2>
+  <BaseModal title="Log a workout" wide @close="emit('close')">
     <label class="field log__date">
       Date
       <input v-model="date" type="date" aria-label="Workout date" />
@@ -215,7 +215,7 @@ onMounted(load)
       @close="confirmingDelete = false"
       @confirm="removeSession"
     />
-  </section>
+  </BaseModal>
 </template>
 
 <style scoped>

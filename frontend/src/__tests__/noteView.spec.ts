@@ -164,4 +164,14 @@ describe('NoteView', () => {
     expect(notesApi.remove).toHaveBeenCalledWith('n1')
     expect(router.currentRoute.value.path).toBe('/')
   })
+
+  it('opens and closes the study buddy drawer', async () => {
+    vi.mocked(notesApi.get).mockResolvedValue(note() as never)
+    const { w } = await open()
+    expect(w.find('[aria-label="Study buddy"]').exists()).toBe(false)
+    await btn(w, 'Study buddy').trigger('click')
+    expect(w.find('[aria-label="Study buddy"]').exists()).toBe(true)
+    await w.get('[aria-label="Close study buddy"]').trigger('click')
+    expect(w.find('[aria-label="Study buddy"]').exists()).toBe(false)
+  })
 })

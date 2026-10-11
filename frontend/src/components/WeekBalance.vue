@@ -34,7 +34,7 @@ async function run() {
         {{ running ? 'Balancing…' : 'Balance my week' }}
       </button>
     </header>
-    <p v-if="!result && !error" class="balance__hint">Checks this week’s tasks against your gym days and suggests what to move.</p>
+    <p v-if="!result && !error" class="balance__hint">Checks this week’s tasks against your gym days and suggests what to move, plus food, water and caffeine for each gym day.</p>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
 
     <template v-if="result">

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted } from 'vue'
 
-defineProps<{ title: string }>()
+defineProps<{ title: string; wide?: boolean }>()
 const emit = defineEmits<{ close: [] }>()
 
 function onKey(e: KeyboardEvent) {
@@ -14,7 +14,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
 <template>
   <Teleport to="body">
     <div class="backdrop" @click.self="emit('close')">
-      <div class="modal" role="dialog" aria-modal="true" :aria-label="title">
+      <div class="modal" :class="{ 'modal--wide': wide }" role="dialog" aria-modal="true" :aria-label="title">
         <header>
           <h2>{{ title }}</h2>
           <button type="button" class="btn--ghost btn--icon" aria-label="Close" @click="emit('close')">×</button>
@@ -45,6 +45,9 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
   width: min(480px, 92vw);
   max-height: 90vh;
   overflow: auto;
+}
+.modal--wide {
+  width: min(720px, 94vw);
 }
 header {
   display: flex;

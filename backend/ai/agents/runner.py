@@ -54,18 +54,25 @@ async def run_agent(
     return {"output": output, "messages": messages}
 
 
-@traceable(run_type="chain", name="stream_agent")
 async def stream_agent(
-    name: str, system_prompt: str, tools: list, messages: list[dict], recursion_limit: int = 25
+    name: str,
+    system_prompt: str,
+    tools: list,
+    messages: list[dict],
+    recursion_limit: int = 25,
+    metadata: dict | None = None,
 ) -> AsyncIterator:
     """Run a tool-calling agent over a conversation, yielding model token chunks and tool results as they happen.
 
     `tools` are ready-made tool objects (not MCP allow-list names), so a caller can bind them to its own data.
+    Not wrapped in `@traceable`: callers step this generator across tasks (`asyncio.wait_for`), which stops a
+    traceable root run from ever closing, so the agent's own `{name}_agent` run is the trace root.
+    `metadata` is attached to that run for filtering in LangSmith.
     """
     agent = create_agent(get_llm(name), tools, system_prompt=system_prompt, name=name)
     async for chunk, _metadata in agent.astream(
         {"messages": messages},
-        {"recursion_limit": recursion_limit, "run_name": f"{name}_agent", "tags": [name]},
+        {"recursion_limit": recursion_limit, "run_name": f"{name}_agent", "tags": [name], "metadata": metadata or {}},
         stream_mode="messages",
     ):
         yield chunk

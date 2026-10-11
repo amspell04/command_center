@@ -3,7 +3,7 @@
 Vue 3 + Vite + TypeScript in `frontend/`.
 
 ## API wiring
-- `src/api.ts` is the only place that calls `fetch`. It exposes `tasksApi`, `notesApi`, `goalsApi`, `newsApi`, `weakPointsApi`, `trainingApi` and `agentsApi` (`planDay(date)` and `balanceWeek(date)` send the local date), throws `ApiError` with a readable message (FastAPI `detail`, or a generic/network message), and returns `undefined` on 204.
+- `src/api.ts` is the only place that calls `fetch`. It exposes `tasksApi`, `notesApi`, `goalsApi`, `newsApi`, `weakPointsApi`, `studyBuddyApi`, `trainingApi` and `agentsApi` (`planDay(date)` and `balanceWeek(date)` send the local date), throws `ApiError` with a readable message (FastAPI `detail`, or a generic/network message), and returns `undefined` on 204.
 - All calls go to `/api/*`. The Vite dev server proxies `/api` to `http://localhost:8000` and strips the prefix, because the FastAPI routes are mounted without `/api` (`/tasks`, `/notes`).
 - Types in `src/types/index.ts` mirror the backend models.
 
@@ -26,7 +26,7 @@ Vue 3 + Vite + TypeScript in `frontend/`.
 
 ## Running
 - Dev: `make up` from the repo root, or `uvicorn backend.services.api.api:app` on port 8000 then `npm run dev` in `frontend/`. The proxy target is `http://localhost:8000`, or `API_PROXY_TARGET` (set by Docker Compose).
-- The study buddy endpoint (`POST /agents/notes/study_buddy/stream`) has no UI yet.
+- `NoteStudyBuddy.vue`: side drawer opened from the note page's "Study buddy" button. Quiz or Review mode, a streamed chat (`studyBuddyApi.stream` parses the SSE frames; the client keeps the history), and the note's weak points, refreshed on `weak_point` / `weak_point_resolved` events with a manual Resolve/Reopen. Disabled while the note has unsaved edits; Review is disabled with no open weak points.
 - Tests: `npm test` (Vitest + Vue Test Utils, API mocked).
 
 ## UI conventions

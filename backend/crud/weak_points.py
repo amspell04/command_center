@@ -28,6 +28,20 @@ def record_miss(db: Session, note_id: uuid.UUID, topic: str) -> tuple[WeakPoint,
     return existing, True
 
 
+def resolve_topic(db: Session, note_id: uuid.UUID, topic: str) -> WeakPoint | None:
+    """Mark the open weak point matching `topic` (case-insensitive) on a note as resolved. None if there is none."""
+    weak_point = db.scalars(
+        select(WeakPoint).where(
+            WeakPoint.note_id == note_id, func.lower(WeakPoint.topic) == topic.lower(), WeakPoint.resolved.is_(False)
+        )
+    ).one_or_none()
+    if weak_point is None:
+        return None
+    weak_point.resolved = True
+    db.commit()
+    return weak_point
+
+
 def list_weak_points(db: Session, note_id: uuid.UUID, resolved: bool | None = None) -> list[WeakPoint]:
     stmt = select(WeakPoint).where(WeakPoint.note_id == note_id).order_by(WeakPoint.date_created.desc(), WeakPoint.topic)
     if resolved is not None:

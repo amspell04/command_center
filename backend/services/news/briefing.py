@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from backend.ai.llm.news import summarize_news
 from backend.crud import news as news_crud
 from backend.db.models import News
-from backend.services.news.news import fetch_articles, format_for_agent
+from backend.services.news.news import fetch_articles, format_for_agent, top_links
 
 
 class BriefingExists(Exception):
@@ -32,7 +32,8 @@ async def generate_briefing(db: Session, replace: bool = False) -> News:
         if not articles:
             raise NoArticles("No recent articles could be fetched")
         text, sources = format_for_agent(articles)
-        created = news_crud.create_news(db, await summarize_news(text, sources))
+        summary = await summarize_news(text, sources)
+        created = news_crud.create_news(db, summary.model_copy(update={"articles": top_links(articles)}))
         for old_id in old_ids:
             news_crud.delete_news(db, old_id)
         return created

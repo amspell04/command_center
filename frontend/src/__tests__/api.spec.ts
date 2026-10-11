@@ -1,10 +1,66 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { agentsApi, ApiError, newsApi, tasksApi, trainingApi, weakPointsApi } from '../api'
+import { agentsApi, ApiError, newsApi, studyBuddyApi, tasksApi, trainingApi, weakPointsApi } from '../api'
 
 const respond = (status: number, body?: unknown) =>
   new Response(body === undefined ? null : JSON.stringify(body), { status })
 
 afterEach(() => vi.unstubAllGlobals())
+
+const sse = (chunks: string[], status = 200) =>
+  new Response(
+    new ReadableStream({
+      start(c) {
+        chunks.forEach((x) => c.enqueue(new TextEncoder().encode(x)))
+        c.close()
+      },
+    }),
+    { status },
+  )
+const collect = async (it: AsyncIterable<unknown>) => {
+  const out: unknown[] = []
+  for await (const e of it) out.push(e)
+  return out
+}
+
+describe('study buddy stream', () => {
+  const msgs = [{ role: 'user' as const, content: 'Start' }]
+
+  it('POSTs the mode and conversation and parses frames split across chunks', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        sse(['data: {"type":"token","te', 'xt":"Hi"}\n\ndata: {"type":"done"}\n\n']),
+      )
+    vi.stubGlobal('fetch', fetchMock)
+    expect(await collect(studyBuddyApi.stream('n1', 'review', msgs))).toEqual([
+      { type: 'token', text: 'Hi' },
+      { type: 'done' },
+    ])
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('/api/agents/notes/study_buddy/stream')
+    expect(JSON.parse(init.body)).toEqual({ note_id: 'n1', mode: 'review', messages: msgs })
+  })
+
+  it('skips malformed and non-data frames', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(sse([': ping\n\ndata: {oops\n\ndata: {"type":"done"}\n\n'])))
+    expect(await collect(studyBuddyApi.stream('n1', 'quiz', msgs))).toEqual([{ type: 'done' }])
+  })
+
+  it('throws the server detail on a non-2xx response', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(respond(400, { detail: 'This note is empty' })))
+    await expect(collect(studyBuddyApi.stream('n1', 'quiz', msgs))).rejects.toMatchObject({
+      status: 400,
+      message: 'This note is empty',
+    })
+  })
+
+  it('throws a friendly error when the server is unreachable', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('fail')))
+    await expect(collect(studyBuddyApi.stream('n1', 'quiz', msgs))).rejects.toMatchObject({
+      message: 'Cannot reach the server',
+    })
+  })
+})
 
 describe('api client', () => {
   it('lists weak points, optionally filtered by resolved', async () => {

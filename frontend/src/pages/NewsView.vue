@@ -49,7 +49,8 @@ onMounted(load)
         </div>
         <button class="btn--sm no-print" @click="printBriefing">Print</button>
       </header>
-      <p class="briefing__summary">{{ briefing.summary }}</p>
+      <p class="briefing__summary" data-testid="briefing-summary">{{ briefing.summary }}</p>
+      <p class="briefing__body" data-testid="briefing-body">{{ briefing.body }}</p>
 
       <section v-if="briefing.quiz_section.length" class="section">
         <h2>Quiz</h2>
@@ -100,6 +101,12 @@ onMounted(load)
   font-size: var(--text-2xl);
 }
 .briefing__summary {
+  margin-bottom: var(--space-4);
+  font-size: var(--text-lg);
+  font-weight: 500;
+  line-height: 1.6;
+}
+.briefing__body {
   margin-bottom: var(--space-5);
   white-space: pre-wrap;
   line-height: 1.7;

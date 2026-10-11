@@ -201,7 +201,7 @@ describe('WorkoutLog', () => {
   it('shows a load error and no form', async () => {
     api.planned.mockRejectedValue(new ApiError(0, 'Cannot reach the server'))
     api.sessionsBetween.mockResolvedValue([] as never)
-    const w = mount(WorkoutLog)
+    const w = mount(WorkoutLog, { global: { stubs: { teleport: true } } })
     await flushPromises()
     expect(w.get('[role="alert"]').text()).toContain('Cannot reach the server')
     expect(w.find('form').exists()).toBe(false)
@@ -228,5 +228,12 @@ describe('WorkoutLog', () => {
     await flushPromises()
     expect(w.text()).toContain('Session not found')
     expect(w.emitted('deleted')).toBeUndefined()
+  })
+
+  it('is a modal that asks to close from the close button', async () => {
+    const w = await mountLog()
+    expect(w.get('[role="dialog"]').attributes('aria-label')).toBe('Log a workout')
+    await w.get('[aria-label="Close"]').trigger('click')
+    expect(w.emitted('close')).toHaveLength(1)
   })
 })

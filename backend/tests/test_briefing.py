@@ -124,7 +124,7 @@ ARTICLE = news.Article("Big story", "https://x/1", "details", NOW, "https://x/fe
 class Spy:
     def __init__(self, monkeypatch, articles=(ARTICLE,), summary=None, exc=None):
         self.fetched = self.summarized = 0
-        self.summary, self.exc = summary or NewsCreate(title="Briefing", summary="Things happened."), exc
+        self.summary, self.exc = summary or NewsCreate(title="Briefing", summary="Things happened.", body="Body."), exc
 
         async def fetch():
             self.fetched += 1
@@ -150,6 +150,26 @@ def test_refresh_creates_todays_briefing(client, monkeypatch):
     assert [n["id"] for n in client.get("/news/today").json()] == [r.json()["id"]]
 
 
+def test_refresh_stores_article_links(client, monkeypatch):
+    Spy(monkeypatch)
+    r = client.post("/news/refresh")
+    assert r.json()["articles"] == [{"title": "Big story", "url": "https://x/1"}]
+
+
+def test_top_links_caps_and_skips_non_http_links():
+    arts = [news.Article(f"t{i}", f"https://x/{i}", "", NOW, "f") for i in range(8)]
+    arts.insert(0, news.Article("bad", "javascript:alert(1)", "", NOW, "f"))
+    arts.insert(1, news.Article("empty", "", "", NOW, "f"))
+    links = news.top_links(arts)
+    assert len(links) == news.TOP_LINKS
+    assert links[0] == {"title": "t0", "url": "https://x/0"}
+    assert all(l["url"].startswith("https://") for l in links)
+
+
+def test_top_links_empty():
+    assert news.top_links([]) == []
+
+
 def test_refresh_twice_returns_409_and_does_no_work(client, monkeypatch):
     spy = Spy(monkeypatch)
     assert client.post("/news/refresh").status_code == 201
@@ -162,7 +182,7 @@ def test_refresh_twice_returns_409_and_does_no_work(client, monkeypatch):
 def test_refresh_replace_swaps_todays_briefing(client, monkeypatch):
     spy = Spy(monkeypatch)
     first = client.post("/news/refresh").json()
-    spy.summary = NewsCreate(title="Second", summary="More happened.")
+    spy.summary = NewsCreate(title="Second", summary="More happened.", body="More body.")
     r = client.post("/news/refresh?replace=true")
     assert r.status_code == 201 and r.json()["title"] == "Second"
     assert [n["id"] for n in client.get("/news/today").json()] == [r.json()["id"]]

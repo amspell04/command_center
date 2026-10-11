@@ -11,7 +11,7 @@ A minimal personal dashboard with a daily news briefing, today's tasks, notes, g
 | Frontend | Vue 3 + Vite + TypeScript, Vue Router, Vitest | Vite dev server proxies `/api` to FastAPI. Serving `frontend/dist/` from FastAPI is not implemented; the app runs in dev mode |
 | API | FastAPI | One app in `api.py` plus routers for agent actions, the study buddy stream and training |
 | DB | Postgres 16 (Docker Compose) | SQLAlchemy 2.x + psycopg, schema managed by Alembic migrations (see `architecture/DATABASE.md`) |
-| LLM | Ollama, `qwen3.5:2b` | Via `langchain-ollama` `ChatOllama`. Upgrade to a larger Qwen if tool calls are unreliable |
+| LLM | Ollama, `gemma4:e2b` | Via `langchain-ollama` `ChatOllama`. Upgrade to a larger Qwen if tool calls are unreliable |
 | News | RSS via `feedparser` | Feed list lives in `backend/services/news/feeds.json` |
 | Tools | FastMCP server | Task and note tools for agents, streamable HTTP on port 8765 |
 | Dev stack | Docker Compose, `make up` | Postgres, Ollama, migrations, API, MCP server and frontend in one command |
@@ -47,7 +47,7 @@ docker-compose.yml, backend/Dockerfile, Makefile
 Mirrors the Pydantic models in `backend/models/`. All ids are UUIDs (`gen_random_uuid()`), `date_created` defaults to the current date. ORM in `backend/db/models.py`, migrations in `backend/alembic/versions/` (`0001_initial` to `0005_training`).
 - `tasks`: id, title, type (enum `WORK`/`PERSONAL`), requirement, due_date, completed, date_created. Indexed on (due_date, completed)
 - `notes`: id, title, content (text, one markdown document), date_created, summary, summary_generated_at, summary_source_hash (latest AI summary, nullable)
-- `news`: id, title, summary, quiz_section (jsonb list of `{question, answer}`), sources (text[]), date_created. Indexed on date_created
+- `news`: id, title, summary (short overview, shown on the home page), body (2-3 paragraph write-up on the briefing page), quiz_section (jsonb list of `{question, answer}`), sources (text[]), articles (jsonb list of `{title, url}`: newest 5 article links, shown on the home page), date_created. Indexed on date_created
 - `goals`: id, title, details, target_date (optional deadline, used as the meet date), date_created
 - `weak_points`: id, note_id (cascades on note delete), topic, resolved, date_created; one row per topic per note, case-insensitive
 - Training: `training_maxes`, `programs`, `program_sets`, `workout_sessions`, `lift_sets` (see `architecture/TRAINING.md`)
@@ -56,11 +56,11 @@ Mirrors the Pydantic models in `backend/models/`. All ids are UUIDs (`gen_random
 
 | Feature | Kind | What it does |
 |---|---|---|
-| News briefing | single call | Summarizes the day's RSS items into a title, summary and quiz; `POST /news/refresh` |
+| News briefing | single call | Summarizes the day's RSS items into a title, short summary, body covering the top 3 events, and quiz; `POST /news/refresh` |
 | Plan my day | single call | Orders due tasks with estimates and gives a week status and goal checks; `POST /agents/task/actions/plan_day` |
 | Summarize note | single call | Stores a summary apart from the note's content; `POST /agents/notes/actions/summarize_note` |
 | Balance my week | single call | Judges tasks against gym days and suggests changes; `POST /agents/training/actions/balance_week` |
-| Study buddy | tool-calling agent | Quizzes the user on a note over SSE and records weak points; `POST /agents/notes/study_buddy/stream` (no UI yet) |
+| Study buddy | tool-calling agent | Quizzes the user on a note over SSE and records weak points, or talks through open ones (`mode: review`) and resolves them; `POST /agents/notes/study_buddy/stream`; chat drawer on the note page |
 
 Single calls get their data from the route and return structured output the route validates. The MCP server exposes `create_task`, `list_tasks`, `update_task`, `complete_task`, `create_note`, `search_notes` and `append_note_content`, with no delete tools. Details are in `architecture/AGENTS.md`.
 
@@ -71,7 +71,7 @@ Single calls get their data from the route and return structured output the rout
 - [ ] Confirm Node 20+ is installed (`node -v`)
 - [ ] `docker-compose.yml` for Postgres, plus `.env` and `.env.example`, plus `.gitignore` (`.venv`, `.env`)
 - [ ] LangSmith setup: create an account and API key; add `LANGSMITH_TRACING`, `LANGSMITH_API_KEY`, `LANGSMITH_PROJECT=command-center` to `.env` / `.env.example`; decide on `LANGSMITH_HIDE_INPUTS` / `LANGSMITH_HIDE_OUTPUTS` (see open questions)
-- [ ] `ollama pull qwen3.5:2b` and confirm Ollama is running
+- [ ] `ollama pull gemma4:e2b` and confirm Ollama is running
 - [ ] **Tool-calling smoke test:** script that binds one dummy tool to `ChatOllama` and checks it is called correctly 10 times in a row; confirm the runs show up in the LangSmith project
 - [ ] **Decision gate:** if the smoke test passes fewer than 8/10, switch to a larger Qwen before continuing
 

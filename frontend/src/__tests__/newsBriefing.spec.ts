@@ -16,8 +16,10 @@ const news = (o = {}) => ({
   id: 'b1',
   title: 'Morning briefing',
   summary: 'Things happened.',
+  body: 'Long details of the events.',
   quiz_section: [],
   sources: [],
+  articles: [{ title: 'Big story', url: 'https://x.test/1' }],
   date_created: '2026-01-02',
   ...o,
 })
@@ -73,14 +75,38 @@ describe('NewsBriefing', () => {
     expect(btn(w, 'Regenerate')!.attributes('disabled')).toBeUndefined()
   })
 
-  it('does not render the full briefing on the home page', async () => {
+  it('shows the summary under the title on the home page', async () => {
     vi.mocked(newsApi.today).mockResolvedValue([
       news({ quiz_section: [{ question: 'Q1?', answer: 'A1' }], sources: ['https://x.test'] }),
     ] as never)
     const w = await mountPanel()
-    expect(w.text()).not.toContain('Things happened.')
+    expect(w.get('[data-testid="briefing-summary"]').text()).toBe('Things happened.')
+    expect(w.text()).not.toContain('Long details of the events.')
     expect(w.text()).not.toContain('Q1?')
     expect(w.text()).not.toContain('https://x.test')
+  })
+
+  it('links the covered articles in a new tab', async () => {
+    vi.mocked(newsApi.today).mockResolvedValue([news()] as never)
+    const a = (await mountPanel()).get('[data-testid="briefing-links"] a')
+    expect(a.text()).toBe('Big story')
+    expect(a.attributes()).toMatchObject({ href: 'https://x.test/1', target: '_blank', rel: 'noopener noreferrer' })
+  })
+
+  it('shows no links when there are no articles, and never links a non-http url', async () => {
+    vi.mocked(newsApi.today).mockResolvedValue([news({ articles: [] })] as never)
+    expect((await mountPanel()).find('[data-testid="briefing-links"]').exists()).toBe(false)
+    vi.mocked(newsApi.today).mockResolvedValue([
+      news({ articles: [{ title: 'Bad', url: 'javascript:alert(1)' }] }),
+    ] as never)
+    expect((await mountPanel()).find('[data-testid="briefing-links"] a').exists()).toBe(false)
+  })
+
+  it('shows no summary when there is no briefing', async () => {
+    vi.mocked(newsApi.today).mockResolvedValue([])
+    vi.mocked(newsApi.latest).mockRejectedValue(new ApiError(404, 'none'))
+    const w = await mountPanel()
+    expect(w.find('[data-testid="briefing-summary"]').exists()).toBe(false)
   })
 
   it('falls back to the latest older briefing and still offers to generate today', async () => {

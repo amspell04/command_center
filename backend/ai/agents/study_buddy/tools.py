@@ -33,3 +33,25 @@ def make_weak_point_tool(note_id: uuid.UUID) -> BaseTool:
         return f"Added '{topic}' to the weak points.", {**result, "added": True}
 
     return add_weak_point_tool
+
+
+def make_resolve_weak_point_tool(note_id: uuid.UUID) -> BaseTool:
+    """Bound to one note like the add tool. It can only resolve a topic that is already open on that note.
+
+    It returns (message for the model, result for the caller); `result["resolved"]` says whether the list changed.
+    """
+
+    @tool("resolve_weak_point", response_format="content_and_artifact")
+    def resolve_weak_point_tool(topic: str) -> tuple[str, dict]:
+        """Mark a weak point as resolved once the user has explained it correctly.
+        Pass the topic exactly as listed in <weak_points>. Call it once per topic."""
+        topic = " ".join(topic.split())
+        result = {"topic": topic, "resolved": False}
+        with get_session() as db:
+            weak_point = weak_points_crud.resolve_topic(db, note_id, topic) if topic else None
+            if weak_point is None:
+                return f"Not resolved: '{topic}' is not an open weak point.", result
+            topic = weak_point.topic
+        return f"Resolved '{topic}'.", {"topic": topic, "resolved": True}
+
+    return resolve_weak_point_tool

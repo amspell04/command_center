@@ -98,8 +98,10 @@ def test_tool_reports_a_deleted_note(db, tool_session):
 def patch_stream(monkeypatch, chunks):
     seen = {}
 
-    async def fake_stream(name, prompt, tools, messages, recursion_limit):
-        seen.update(name=name, prompt=prompt, tools=tools, messages=messages, limit=recursion_limit)
+    async def fake_stream(name, prompt, tools, messages, recursion_limit, metadata=None):
+        seen.update(
+            name=name, prompt=prompt, tools=tools, messages=messages, limit=recursion_limit, metadata=metadata
+        )
         for chunk in chunks:
             yield chunk
 
@@ -155,6 +157,7 @@ async def test_events_run_the_agent_with_the_note_and_history(monkeypatch):
     history = [{"role": "user", "content": "Start"}]
     await events(note_id, history)
     assert seen["name"] == "study_buddy" and seen["messages"] == history and seen["limit"] == sb_agent.RECURSION_LIMIT
+    assert seen["metadata"] == {"note_id": str(note_id), "mode": "quiz"}
     assert [t.name for t in seen["tools"]] == ["add_weak_point"]
     assert "Cells" in seen["prompt"] and "body" in seen["prompt"] and "add_weak_point" in seen["prompt"]
 
@@ -182,6 +185,71 @@ def test_system_prompt_caps_the_note_text():
     assert prompt.count("§") == sb_agent.MAX_NOTE_CHARS
 
 
+# resolve tool
+
+def call_resolve(note_id, topic):
+    tool = sb_tools.make_resolve_weak_point_tool(note_id)
+    message = tool.invoke({"name": "resolve_weak_point", "args": {"topic": topic}, "id": "1", "type": "tool_call"})
+    return message.content, message.artifact
+
+
+def test_resolve_tool_takes_only_a_topic():
+    tool = sb_tools.make_resolve_weak_point_tool(uuid.uuid4())
+    assert tool.name == "resolve_weak_point" and list(tool.args) == ["topic"]
+
+
+def test_resolve_tool_resolves_an_open_topic_on_its_own_note_only(db, tool_session):
+    mine, other = make_note(db, "mine", "a"), make_note(db, "other", "b")
+    call_tool(mine.id, "Mitosis")
+    call_tool(other.id, "Mitosis")
+    message, result = call_resolve(mine.id, "  mitosis ")
+    assert result == {"topic": "Mitosis", "resolved": True} and "Resolved" in message
+    assert topics(db, mine.id, resolved=False) == [] and topics(db, other.id, resolved=False) == ["Mitosis"]
+
+
+@pytest.mark.parametrize("topic", ["Unknown", "", "   "])
+def test_resolve_tool_rejects_a_topic_that_is_not_open(db, tool_session, topic):
+    note = make_note(db)
+    call_tool(note.id, "Mitosis")
+    message, result = call_resolve(note.id, topic)
+    assert result["resolved"] is False and message.startswith("Not resolved")
+    assert topics(db, note.id, resolved=False) == ["Mitosis"]
+
+
+def test_resolve_tool_does_not_resolve_twice(db, tool_session):
+    note = make_note(db)
+    call_tool(note.id, "Mitosis")
+    call_resolve(note.id, "Mitosis")
+    _, result = call_resolve(note.id, "Mitosis")
+    assert result["resolved"] is False
+
+
+# review mode
+
+@pytest.mark.asyncio
+async def test_review_events_use_the_review_prompt_and_only_the_resolve_tool(monkeypatch):
+    seen = patch_stream(monkeypatch, [])
+    gen = sb_agent.study_buddy_events(uuid.uuid4(), "Cells", "body", ["Mitosis"], [], "review")
+    [e async for e in gen]
+    assert [t.name for t in seen["tools"]] == ["resolve_weak_point"]
+    assert "resolve_weak_point" in seen["prompt"] and "<weak_points>\n- Mitosis" in seen["prompt"]
+    assert seen["metadata"]["mode"] == "review"
+
+
+@pytest.mark.asyncio
+async def test_review_events_report_resolved_topics_only_when_the_list_changed(monkeypatch):
+    patch_stream(
+        monkeypatch,
+        [
+            tool_message({"topic": "Mitosis", "resolved": True}, name="resolve_weak_point"),
+            tool_message({"topic": "Meiosis", "resolved": False}, name="resolve_weak_point"),
+            tool_message({"topic": "Other", "resolved": True}, name="add_weak_point"),
+        ],
+    )
+    gen = sb_agent.study_buddy_events(uuid.uuid4(), "Cells", "body", ["Mitosis"], [], "review")
+    assert [e async for e in gen] == [{"type": "weak_point_resolved", "topic": "Mitosis"}]
+
+
 # route
 
 def make_note_via_api(client, content="alpha beta", title="Cells"):
@@ -191,8 +259,8 @@ def make_note_via_api(client, content="alpha beta", title="Cells"):
 def fake_events(monkeypatch, items=(), exc=None, delay=0):
     calls = []
 
-    async def gen(note_id, title, text, weak_points, history):
-        calls.append((note_id, title, text, weak_points, history))
+    async def gen(note_id, title, text, weak_points, history, mode):
+        calls.append((note_id, title, text, weak_points, history, mode))
         for item in items:
             yield item
         if delay:
@@ -219,7 +287,7 @@ def test_stream_sends_events_then_done(client, monkeypatch):
     r = stream(client, note["id"])
     assert r.status_code == 200 and r.headers["content-type"].startswith("text/event-stream")
     assert parse(r) == [{"type": "token", "text": "Hi"}, {"type": "weak_point", "topic": "T"}, {"type": "done"}]
-    assert calls[0][1:] == ("Cells", "alpha beta", [], [{"role": "user", "content": "Start"}])
+    assert calls[0][1:] == ("Cells", "alpha beta", [], [{"role": "user", "content": "Start"}], "quiz")
 
 
 def test_stream_gives_the_agent_only_this_notes_open_weak_points(client, monkeypatch):
@@ -272,6 +340,7 @@ def test_bad_messages_are_422_before_the_model_runs(client, monkeypatch, message
 def test_bad_note_id_or_extra_fields_are_422(client, monkeypatch):
     note = make_note_via_api(client)
     fake_events(monkeypatch)
+    assert stream(client, note["id"], mode="chat").status_code == 422
     assert stream(client, "nope").status_code == 422
     assert stream(client, note["id"], bogus=1).status_code == 422
     assert client.post("/agents/notes/study_buddy/stream", json={"note_id": note["id"]}).status_code == 422
@@ -291,3 +360,20 @@ def test_a_slow_stream_times_out_with_an_error_event(client, monkeypatch):
     fake_events(monkeypatch, delay=1)
     monkeypatch.setattr(settings, "agent_timeout_seconds", 0.01)
     assert parse(stream(client, note["id"])) == [{"type": "error", "message": "The agent timed out"}]
+
+
+def test_review_passes_the_mode_and_open_topics(client, monkeypatch):
+    note = make_note_via_api(client)
+    with TestSession() as db:
+        weak_points_crud.record_miss(db, uuid.UUID(note["id"]), "Open")
+    calls = fake_events(monkeypatch, [{"type": "weak_point_resolved", "topic": "Open"}])
+    frames = parse(stream(client, note["id"], mode="review"))
+    assert frames == [{"type": "weak_point_resolved", "topic": "Open"}, {"type": "done"}]
+    assert calls[0][3] == ["Open"] and calls[0][5] == "review"
+
+
+def test_review_with_no_open_weak_points_is_400(client, monkeypatch):
+    note = make_note_via_api(client)
+    calls = fake_events(monkeypatch)
+    assert stream(client, note["id"], mode="review").status_code == 400
+    assert calls == []

@@ -51,7 +51,7 @@ services:
         condition: service_healthy
     environment:
       OLLAMA_HOST: ollama:11434
-    entrypoint: ["ollama", "pull", "${OLLAMA_MODEL:-qwen3.5:2b}"]
+    entrypoint: ["ollama", "pull", "${OLLAMA_MODEL:-gemma4:e2b}"]
     restart: "no"
 
   # One-shot: applies migrations, then exits.

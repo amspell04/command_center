@@ -23,9 +23,9 @@ import WeekTimeline from '@/components/WeekTimeline.vue'
     <TasksPanel class="home__col home__tasks" />
     <aside class="home__col home__side">
       <GoalsPanel />
-      <NewsBriefing />
       <NotesPanel />
     </aside>
+    <NewsBriefing class="home__news" />
   </main>
 </template>
 
@@ -35,7 +35,8 @@ import WeekTimeline from '@/components/WeekTimeline.vue'
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) minmax(0, 1fr);
   grid-template-areas:
     'week week week'
-    'today tasks side';
+    'today tasks side'
+    'news news news';
   max-width: 1680px;
   margin: 0 auto;
   padding: var(--space-3) var(--space-5);
@@ -63,6 +64,12 @@ import WeekTimeline from '@/components/WeekTimeline.vue'
 .home__tasks {
   grid-area: tasks;
 }
+.home__news {
+  grid-area: news;
+  margin-top: var(--space-3);
+  padding: var(--space-3) 0 0;
+  border-top: 1px solid var(--border-color);
+}
 .home__side {
   grid-area: side;
   display: flex;
@@ -72,7 +79,7 @@ import WeekTimeline from '@/components/WeekTimeline.vue'
 @media (max-width: 1100px) {
   .home {
     grid-template-columns: 1fr 1fr;
-    grid-template-areas: 'week week' 'today today' 'tasks side';
+    grid-template-areas: 'week week' 'today today' 'tasks side' 'news news';
   }
   .home__today {
     padding-right: 0;
@@ -86,7 +93,7 @@ import WeekTimeline from '@/components/WeekTimeline.vue'
 @media (max-width: 700px) {
   .home {
     grid-template-columns: 1fr;
-    grid-template-areas: 'week' 'today' 'tasks' 'side';
+    grid-template-areas: 'week' 'today' 'tasks' 'side' 'news';
     padding: var(--space-3);
   }
   .home__col {

@@ -1,4 +1,5 @@
 import type {
+  ChatMessage,
   DayPlan,
   E1RMPoint,
   Exercise,
@@ -14,6 +15,8 @@ import type {
   NewTask,
   Note,
   Program,
+  StudyBuddyEvent,
+  StudyMode,
   Task,
   TrainingMax,
   WeakPoint,
@@ -31,6 +34,18 @@ export class ApiError extends Error {
   }
 }
 
+async function failure(res: Response): Promise<ApiError> {
+  let message = `Request failed (${res.status})`
+  try {
+    const body = await res.json()
+    if (typeof body.detail === 'string') message = body.detail
+    else if (Array.isArray(body.detail)) message = body.detail.map((d: { msg: string }) => d.msg).join('; ')
+  } catch {
+    /* non-JSON error body */
+  }
+  return new ApiError(res.status, message)
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response
   try {
@@ -41,17 +56,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   } catch {
     throw new ApiError(0, 'Cannot reach the server')
   }
-  if (!res.ok) {
-    let message = `Request failed (${res.status})`
-    try {
-      const body = await res.json()
-      if (typeof body.detail === 'string') message = body.detail
-      else if (Array.isArray(body.detail)) message = body.detail.map((d: { msg: string }) => d.msg).join('; ')
-    } catch {
-      /* non-JSON error body */
-    }
-    throw new ApiError(res.status, message)
-  }
+  if (!res.ok) throw await failure(res)
   return res.status === 204 ? (undefined as T) : res.json()
 }
 
@@ -83,6 +88,54 @@ export const goalsApi = {
 
 export const weakPointsApi = {
   list: (resolved?: boolean) => request<WeakPoint[]>(`/weak_points${resolved === undefined ? '' : `?resolved=${resolved}`}`),
+  forNote: (noteId: string, resolved?: boolean) =>
+    request<WeakPoint[]>(`/notes/${noteId}/weak_points${resolved === undefined ? '' : `?resolved=${resolved}`}`),
+  setResolved: (id: string, resolved: boolean) => request<WeakPoint>(`/weak_points/${id}`, json('PATCH', { resolved })),
+}
+
+export const studyBuddyApi = {
+  /** One agent reply as server-sent events. Rejects on a non-2xx response; a mid-stream failure arrives as an `error` event. */
+  async *stream(
+    noteId: string,
+    mode: StudyMode,
+    messages: ChatMessage[],
+    signal?: AbortSignal,
+  ): AsyncGenerator<StudyBuddyEvent> {
+    let res: Response
+    try {
+      res = await fetch(`${BASE}/agents/notes/study_buddy/stream`, {
+        ...json('POST', { note_id: noteId, mode, messages }),
+        headers: { 'Content-Type': 'application/json' },
+        signal,
+      })
+    } catch (e) {
+      if (e instanceof DOMException && e.name === 'AbortError') throw e
+      throw new ApiError(0, 'Cannot reach the server')
+    }
+    if (!res.ok) throw await failure(res)
+    if (!res.body) throw new ApiError(0, 'The server sent no response')
+    const reader = res.body.pipeThrough(new TextDecoderStream()).getReader()
+    let buffer = ''
+    try {
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += value
+        const frames = buffer.split('\n\n')
+        buffer = frames.pop() ?? ''
+        for (const frame of frames) {
+          if (!frame.startsWith('data: ')) continue
+          try {
+            yield JSON.parse(frame.slice(6)) as StudyBuddyEvent
+          } catch {
+            /* skip a malformed frame */
+          }
+        }
+      }
+    } finally {
+      reader.cancel().catch(() => {})
+    }
+  },
 }
 
 export const newsApi = {

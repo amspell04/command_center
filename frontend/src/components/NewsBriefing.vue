@@ -68,6 +68,12 @@ onMounted(load)
 
     <template v-if="briefing">
       <RouterLink class="headline" :to="`/news/${briefing.id}`">{{ briefing.title }}</RouterLink>
+      <p class="summary" data-testid="briefing-summary">{{ briefing.summary }}</p>
+      <ul v-if="briefing.articles.length" class="links" aria-label="Articles covered" data-testid="briefing-links">
+        <li v-for="a in briefing.articles" :key="a.url">
+          <a v-if="/^https?:\/\//.test(a.url)" :href="a.url" target="_blank" rel="noopener noreferrer">{{ a.title }}</a>
+        </li>
+      </ul>
       <small v-if="!hasToday" class="muted">From {{ briefing.date_created }}</small>
     </template>
     <p v-else-if="!loading && !error" class="muted">No briefing yet.</p>
@@ -82,5 +88,14 @@ onMounted(load)
 }
 .headline {
   font-weight: 600;
+}
+.links {
+  margin: 0 0 var(--space-2);
+  padding-left: var(--space-4);
+  font-size: var(--text-sm);
+}
+.summary {
+  margin: var(--space-2) 0;
+  line-height: 1.6;
 }
 </style>

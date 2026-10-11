@@ -88,10 +88,14 @@ class News(Base):
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     title: Mapped[str] = mapped_column(String(255))
+    # Short overview shown on the home page; `body` is the full write-up on the briefing page
     summary: Mapped[str] = mapped_column(Text)
+    body: Mapped[str] = mapped_column(Text, default="", server_default=text("''"))
     # Ordered list of {"question": str, "answer": str}, mirrors NewsQuizQuestion
     quiz_section: Mapped[list] = mapped_column(JSONB, default=list, server_default=text("'[]'::jsonb"))
     sources: Mapped[list[str]] = mapped_column(ARRAY(Text), default=list, server_default=text("'{}'"))
+    # Newest articles behind the briefing, [{"title": str, "url": str}], mirrors NewsArticleLink
+    articles: Mapped[list] = mapped_column(JSONB, default=list, server_default=text("'[]'::jsonb"))
     date_created: Mapped[date] = _date_created()
 
 

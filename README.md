@@ -4,7 +4,7 @@ Personal dashboard: daily news briefing, tasks and notes, with local LLM agents 
 
 ## Prerequisites
 - Python 3.10+, Node 20+, Docker
-- [Ollama](https://ollama.com) with `ollama pull qwen3.5:2b`, only for the manual steps below (`make up` runs Ollama in Docker)
+- [Ollama](https://ollama.com) with `ollama pull gemma4:e2b`, only for the manual steps below (`make up` runs Ollama in Docker)
 
 ## Setup
 ```bash
@@ -70,7 +70,7 @@ cd frontend && npm test     # frontend
 |---|---|
 | `DATABASE_URL` | local Postgres from `docker-compose.yml` |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` |
-| `OLLAMA_MODEL` | `qwen3.5:2b` |
+| `OLLAMA_MODEL` | `gemma4:e2b` |
 | `AGENT_TIMEOUT_SECONDS` | `180`, how long a model call or stream may run before the API gives up |
 | `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | `command_center` (read by `docker-compose.yml`; keep `DATABASE_URL` in step) |
 | `MCP_HOST` / `MCP_PORT` / `MCP_URL` | `127.0.0.1` / `8765` / `http://127.0.0.1:8765/mcp` |
