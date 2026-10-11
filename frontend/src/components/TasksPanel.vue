@@ -1,24 +1,19 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { errorMessage, tasksApi } from '../api'
+import { errorMessage } from '../api'
+import { useTasks } from '../composables/useTasks'
 import type { Task } from '../types'
+import { localToday } from '../utils/dates'
 import TaskModal from './TaskModal.vue'
 
-const tasks = ref<Task[]>([])
-const loading = ref(false)
+const { tasks, loading, load: loadTasks, upsert, dropLocal, toggleComplete, remove } = useTasks()
 const error = ref<string | null>(null)
 
-function localToday() {
-  const d = new Date()
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
-}
 const todayStr = localToday()
 
 // undefined = closed, null = create, Task = edit
 const modalTask = ref<Task | null | undefined>(undefined)
 
-const byDue = (list: Task[]) => [...list].sort((a, b) => a.due_date.localeCompare(b.due_date))
 const open = computed(() => tasks.value.filter((t) => !t.completed))
 const overdueTasks = computed(() => open.value.filter((t) => t.due_date < todayStr))
 const todayTasks = computed(() => open.value.filter((t) => t.due_date === todayStr))
@@ -51,37 +46,10 @@ async function run(fn: () => Promise<void>) {
   }
 }
 
-async function load() {
-  loading.value = true
-  await run(async () => {
-    tasks.value = byDue(await tasksApi.list())
-  })
-  loading.value = false
-}
-
-function onSaved(saved: Task) {
-  tasks.value = byDue(tasks.value.some((t) => t.id === saved.id)
-    ? tasks.value.map((t) => (t.id === saved.id ? saved : t))
-    : [...tasks.value, saved])
-}
-
-function onDeleted(id: string) {
-  tasks.value = tasks.value.filter((t) => t.id !== id)
-}
-
-function toggleComplete(task: Task) {
-  return run(async () => {
-    onSaved(task.completed ? await tasksApi.update(task.id, { completed: false }) : await tasksApi.complete(task.id))
-  })
-}
+const load = () => run(loadTasks)
 
 // Tasks delete immediately, no confirmation.
-function deleteTask(task: Task) {
-  return run(async () => {
-    await tasksApi.remove(task.id)
-    onDeleted(task.id)
-  })
-}
+const deleteTask = (task: Task) => run(() => remove(task))
 
 onMounted(load)
 </script>
@@ -90,14 +58,14 @@ onMounted(load)
   <section class="panel">
     <div class="panel__header">
       <h2>Tasks</h2>
-      <button class="btn--primary" @click="modalTask = null">New task</button>
+      <button class="btn--primary btn--sm" @click="modalTask = null">New task</button>
     </div>
 
     <div class="panel__body">
-    <div class="scoreboard" aria-label="Task scoreboard">
-      <div class="score"><strong data-testid="score-done">{{ completedCount }}</strong><span>Completed</span></div>
-      <div class="score"><strong data-testid="score-open">{{ remainingCount }}</strong><span>Not completed</span></div>
-    </div>
+    <p class="scoreboard" aria-label="Task scoreboard">
+      <span class="score"><strong data-testid="score-done">{{ completedCount }}</strong> Completed</span>
+      <span class="score"><strong data-testid="score-open">{{ remainingCount }}</strong> Not completed</span>
+    </p>
 
     <p v-if="loading" class="muted">Loading…</p>
     <p v-if="error" class="error" role="alert">{{ error }} <button @click="load">Retry</button></p>
@@ -107,7 +75,7 @@ onMounted(load)
         <h3 class="group" :class="{ 'group--overdue': group.name === 'Overdue' }">{{ group.name }}</h3>
         <ul :class="{ 'list--overdue': group.name === 'Overdue' }">
           <li v-for="task in group.items" :key="task.id" class="row">
-            <input type="checkbox" :checked="task.completed" :aria-label="`Complete ${task.title}`" @change="toggleComplete(task)" />
+            <input type="checkbox" :checked="task.completed" :aria-label="`Complete ${task.title}`" @change="run(() => toggleComplete(task))" />
             <button class="title" :class="{ done: task.completed }" @click="modalTask = task">{{ task.title }}</button>
             <span class="badge">{{ task.type }}</span>
             <small v-if="group.name === 'Overdue' || group.name === 'Upcoming'">{{ task.due_date }}</small>
@@ -129,8 +97,8 @@ onMounted(load)
       :task="modalTask ?? undefined"
       :default-date="todayStr"
       @close="modalTask = undefined"
-      @saved="onSaved"
-      @deleted="onDeleted"
+      @saved="upsert"
+      @deleted="dropLocal"
     />
   </section>
 </template>
@@ -138,35 +106,19 @@ onMounted(load)
 <style scoped>
 .scoreboard {
   display: flex;
-  gap: var(--space-3);
-  margin: var(--space-3) 0;
-}
-.score {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: var(--space-3);
-  background: var(--card-color);
-  border-radius: var(--radius-md);
+  gap: var(--space-4);
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
 }
 .score strong {
-  font-size: var(--text-xl, 1.5rem);
-}
-.score span {
-  font-size: var(--text-xs);
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
-.panel__body {
-  min-height: 480px;
-  padding: var(--space-4);
+  color: var(--text-color);
+  font-size: var(--text-base);
 }
 .group {
-  margin: var(--space-5) 0 var(--space-2);
+  margin: var(--space-4) 0 var(--space-1);
   font-size: var(--text-xs);
-  letter-spacing: 0.06em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-muted);
 }
@@ -174,7 +126,8 @@ onMounted(load)
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-1) var(--space-2);
+  padding: 0 var(--space-2);
+  margin: 0 calc(-1 * var(--space-2));
   border-radius: var(--radius-md);
   transition: background-color var(--transition);
 }
@@ -184,7 +137,7 @@ onMounted(load)
 .title {
   flex: 1;
   min-width: 0;
-  min-height: 32px;
+  min-height: 30px;
   padding: 0;
   text-align: left;
   background: none;

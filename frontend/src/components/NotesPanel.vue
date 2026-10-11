@@ -50,7 +50,7 @@ onMounted(load)
   <section class="panel">
     <div class="panel__header">
       <h2>Notes</h2>
-      <button class="btn--primary" @click="creating = true">New note</button>
+      <button class="btn--primary btn--sm" @click="creating = true">New note</button>
     </div>
 
     <div class="panel__body">
@@ -80,29 +80,22 @@ onMounted(load)
 </template>
 
 <style scoped>
-.panel__body {
-  min-height: 160px;
-}
 .row {
   display: flex;
-  flex-direction: column;
-  justify-content: space-between;
+  align-items: center;
   gap: var(--space-2);
-  min-height: 120px;
-  padding: var(--space-3) var(--space-4);
-  border: 1px solid var(--border-color);
+  padding: 0 var(--space-2);
+  margin: 0 calc(-1 * var(--space-2));
   border-radius: var(--radius-md);
-  background: var(--card-color);
-  transition:
-    border-color var(--transition),
-    box-shadow var(--transition);
+  transition: background-color var(--transition);
 }
 .row:hover {
-  border-color: #cfc7de;
-  box-shadow: var(--shadow-sm);
+  background: var(--card-color);
 }
 .title {
-  font-weight: 600;
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-1) 0;
   color: var(--text-color);
   text-decoration: none;
   overflow-wrap: anywhere;
@@ -110,13 +103,11 @@ onMounted(load)
 .title:hover {
   color: var(--accent-color);
 }
+.row small,
 .row button {
-  align-self: flex-end;
+  flex-shrink: 0;
 }
 ul {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
-  gap: var(--space-4);
   margin: 0;
   padding-left: 0;
   list-style: none;

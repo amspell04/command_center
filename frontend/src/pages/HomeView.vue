@@ -1,44 +1,82 @@
 <script setup lang="ts">
-import TodayPanel from '@/components/TodayPanel.vue'
+import GoalsPanel from '@/components/GoalsPanel.vue'
+import NewsBriefing from '@/components/NewsBriefing.vue'
 import NotesPanel from '@/components/NotesPanel.vue'
 import TasksPanel from '@/components/TasksPanel.vue'
+import TodayPanel from '@/components/TodayPanel.vue'
+import WeekTimeline from '@/components/WeekTimeline.vue'
 </script>
 
 <template>
   <main class="home">
-    <TasksPanel class="home__tasks" />
-    <TodayPanel class="home__today" />
-    <NotesPanel class="home__notes" />
+    <WeekTimeline class="home__week" />
+    <TodayPanel class="home__col home__today" />
+    <TasksPanel class="home__col home__tasks" />
+    <aside class="home__col home__side">
+      <GoalsPanel />
+      <NewsBriefing />
+      <NotesPanel />
+    </aside>
   </main>
 </template>
 
 <style scoped>
 .home {
   display: grid;
-  grid-template-columns: 340px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1fr);
   grid-template-areas:
-    'tasks today'
-    'tasks notes';
-  gap: var(--space-5) var(--space-6);
-  align-items: start;
-  max-width: 1280px;
+    'week week week'
+    'today tasks side';
+  max-width: 1680px;
   margin: 0 auto;
-  padding: var(--space-5) var(--space-6);
+  padding: var(--space-3) var(--space-5);
+}
+.home__week {
+  grid-area: week;
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--border-color);
+}
+.home__col {
+  padding: var(--space-3) var(--space-4);
+  border-left: 1px solid var(--border-color);
+}
+.home__today {
+  grid-area: today;
+  padding-left: 0;
+  border-left: none;
 }
 .home__tasks {
   grid-area: tasks;
 }
-.home__today {
-  grid-area: today;
+.home__side {
+  grid-area: side;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
 }
-.home__notes {
-  grid-area: notes;
+@media (max-width: 1100px) {
+  .home {
+    grid-template-columns: 1fr 1fr;
+    grid-template-areas: 'week week' 'today today' 'tasks side';
+  }
+  .home__today {
+    padding-right: 0;
+    border-bottom: 1px solid var(--border-color);
+  }
+  .home__tasks {
+    padding-left: 0;
+    border-left: none;
+  }
 }
-@media (max-width: 1000px) {
+@media (max-width: 700px) {
   .home {
     grid-template-columns: 1fr;
-    grid-template-areas: 'today' 'tasks' 'notes';
-    padding: var(--space-4);
+    grid-template-areas: 'week' 'today' 'tasks' 'side';
+    padding: var(--space-3);
+  }
+  .home__col {
+    padding-left: 0;
+    border-left: none;
   }
 }
 </style>

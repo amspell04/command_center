@@ -1,152 +1,213 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { createMemoryHistory, createRouter } from 'vue-router'
 import TodayPanel from '../components/TodayPanel.vue'
+import { useTasks } from '../composables/useTasks'
+import { localToday } from '../utils/dates'
 
 vi.mock('../api', async (orig) => {
   const actual = await orig<typeof import('../api')>()
   return {
     ...actual,
-    newsApi: { today: vi.fn(), latest: vi.fn(), get: vi.fn(), refresh: vi.fn() },
+    tasksApi: { list: vi.fn(), create: vi.fn(), update: vi.fn(), complete: vi.fn(), remove: vi.fn() },
     agentsApi: { planDay: vi.fn(), summarizeNote: vi.fn() },
   }
 })
-import { agentsApi, ApiError, newsApi } from '../api'
+import { agentsApi, ApiError, tasksApi } from '../api'
 
-const news = (o = {}) => ({
-  id: 'b1',
-  title: 'Morning briefing',
-  summary: 'Things happened.',
-  quiz_section: [],
-  sources: [],
-  date_created: '2026-01-02',
+const today = localToday()
+const shift = (days: number) => {
+  const d = new Date()
+  d.setDate(d.getDate() + days)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+const task = (o = {}) => ({
+  id: 't1',
+  title: 'Call dentist',
+  type: 'PERSONAL',
+  requirement: '',
+  due_date: today,
+  completed: false,
+  date_created: today,
   ...o,
 })
-const btn = (w: ReturnType<typeof mount>, text: string) =>
-  w.findAll('button').find((b) => b.text() === text)
+const week = { start: today, end: shift(6), due_so_far: 4, completed_so_far: 3, overdue_open: 1, due_remaining: 2 }
+const planned = (id: string, title: string, minutes: number | null, reason = 'why') => ({
+  task_id: id,
+  title,
+  due_date: today,
+  reason,
+  estimate_minutes: minutes,
+})
+const plan = (o = {}) => ({
+  date: today,
+  items: [planned('t1', 'Call dentist', 30)],
+  week,
+  status: 'ON_TRACK',
+  summary: 'Solid week.',
+  goals: [],
+  ...o,
+})
 
-async function mountPanel() {
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [
-      { path: '/', component: { template: '<div />' } },
-      { path: '/news/:id', component: { template: '<div />' } },
-    ],
-  })
-  router.push('/')
-  await router.isReady()
-  const w = mount(TodayPanel, { global: { plugins: [router] } })
+const btn = (w: ReturnType<typeof mount>, text: string) => w.findAll('button').find((b) => b.text() === text)
+
+async function mountPanel(tasks: object[] = [task()]) {
+  vi.mocked(tasksApi.list).mockResolvedValue(tasks as never)
+  const w = mount(TodayPanel)
   await flushPromises()
   return w
 }
 
-beforeEach(() => vi.resetAllMocks())
+beforeEach(() => {
+  vi.resetAllMocks()
+  useTasks().tasks.value = []
+})
 
-describe('TodayPanel', () => {
-  it("links today's headline to its briefing page and does not offer to generate", async () => {
-    vi.mocked(newsApi.today).mockResolvedValue([news()] as never)
-    const w = await mountPanel()
-    const link = w.get('a.headline')
-    expect(link.text()).toBe('Morning briefing')
-    expect(link.attributes('href')).toBe('/news/b1')
-    expect(btn(w, 'Generate briefing')).toBeUndefined()
-    expect(newsApi.latest).not.toHaveBeenCalled()
+describe('TodayPanel before planning', () => {
+  it('lists what is due today and overdue, ordered by due date, and hides future and done tasks', async () => {
+    const w = await mountPanel([
+      task({ id: 'a', title: 'Late', due_date: shift(-2) }),
+      task({ id: 'b', title: 'Now' }),
+      task({ id: 'c', title: 'Later', due_date: shift(1) }),
+      task({ id: 'd', title: 'Finished', completed: true }),
+    ])
+    const rows = w.findAll('.agenda li').map((li) => li.text())
+    expect(rows).toHaveLength(2)
+    expect(rows[0]).toContain('Late')
+    expect(rows[0]).toContain('Overdue')
+    expect(rows[1]).toContain('Now')
+    expect(w.text()).not.toContain('Finished')
   })
 
-  it('does not render the full briefing on the home page', async () => {
-    vi.mocked(newsApi.today).mockResolvedValue([
-      news({ quiz_section: [{ question: 'Q1?', answer: 'A1' }], sources: ['https://x.test'] }),
-    ] as never)
-    const w = await mountPanel()
-    expect(w.text()).not.toContain('Things happened.')
-    expect(w.text()).not.toContain('Q1?')
-    expect(w.text()).not.toContain('https://x.test')
+  it('splits the agenda into top priorities and the rest', async () => {
+    const w = await mountPanel([1, 2, 3, 4, 5].map((n) => task({ id: `t${n}`, title: `Task ${n}` })))
+    expect(w.findAll('.slot--top')).toHaveLength(3)
+    expect(w.text()).toContain('Also today')
+    expect(w.findAll('.agenda li')).toHaveLength(5)
   })
 
-  it('falls back to the latest older briefing and still offers to generate today', async () => {
-    vi.mocked(newsApi.today).mockResolvedValue([])
-    vi.mocked(newsApi.latest).mockResolvedValue(news({ id: 'old', title: 'Old news' }) as never)
-    const w = await mountPanel()
-    expect(w.get('a.headline').attributes('href')).toBe('/news/old')
-    expect(w.text()).toContain('From 2026-01-02')
-    expect(btn(w, 'Generate briefing')!.attributes('disabled')).toBeUndefined()
+  it('shows an empty state with no due tasks and lists upcoming ones', async () => {
+    const w = await mountPanel([task({ title: 'Next week-ish', due_date: shift(1) })])
+    expect(w.text()).toContain('Nothing due')
+    expect(w.get('.upcoming').text()).toContain('Next week-ish')
   })
 
-  it('shows an empty state when no briefing has ever been made, then generates one', async () => {
-    vi.mocked(newsApi.today).mockResolvedValue([])
-    vi.mocked(newsApi.latest).mockRejectedValue(new ApiError(404, 'Briefing not found'))
-    vi.mocked(newsApi.refresh).mockResolvedValue(news() as never)
+  it('completing a task from the agenda removes it', async () => {
+    vi.mocked(tasksApi.complete).mockResolvedValue(task({ completed: true }) as never)
     const w = await mountPanel()
-    expect(w.text()).toContain('No briefing yet.')
-    expect(w.find('[role="alert"]').exists()).toBe(false)
-    await btn(w, 'Generate briefing')!.trigger('click')
+    await w.get('input[type="checkbox"]').trigger('change')
     await flushPromises()
-    expect(newsApi.refresh).toHaveBeenCalledTimes(1)
-    expect(w.get('a.headline').text()).toBe('Morning briefing')
-    expect(btn(w, 'Generate briefing')).toBeUndefined()
+    expect(tasksApi.complete).toHaveBeenCalledWith('t1')
+    expect(w.find('.agenda').exists()).toBe(false)
   })
 
-  it('disables the button while generating', async () => {
-    vi.mocked(newsApi.today).mockResolvedValue([])
-    vi.mocked(newsApi.latest).mockRejectedValue(new ApiError(404, 'x'))
-    let resolve!: (v: never) => void
-    vi.mocked(newsApi.refresh).mockReturnValue(new Promise((r) => (resolve = r as never)))
+  it('shows an error when completing fails and keeps the task', async () => {
+    vi.mocked(tasksApi.complete).mockRejectedValue(new ApiError(500, 'db down'))
     const w = await mountPanel()
-    await btn(w, 'Generate briefing')!.trigger('click')
-    expect(btn(w, 'Generating…')!.attributes('disabled')).toBeDefined()
-    await btn(w, 'Generating…')!.trigger('click')
-    expect(newsApi.refresh).toHaveBeenCalledTimes(1)
-    resolve(news() as never)
+    await w.get('input[type="checkbox"]').trigger('change')
     await flushPromises()
-    expect(w.get('a.headline').text()).toBe('Morning briefing')
-  })
-
-  it('on a 400 shows the briefing that already exists', async () => {
-    vi.mocked(newsApi.today).mockResolvedValueOnce([]).mockResolvedValueOnce([news()] as never)
-    vi.mocked(newsApi.latest).mockRejectedValue(new ApiError(404, 'x'))
-    vi.mocked(newsApi.refresh).mockRejectedValue(new ApiError(400, 'exists'))
-    const w = await mountPanel()
-    await btn(w, 'Generate briefing')!.trigger('click')
-    await flushPromises()
-    expect(w.get('a.headline').text()).toBe('Morning briefing')
-    expect(w.find('[role="alert"]').exists()).toBe(false)
-  })
-
-  it('keeps the button enabled after a failed generation', async () => {
-    vi.mocked(newsApi.today).mockResolvedValue([])
-    vi.mocked(newsApi.latest).mockRejectedValue(new ApiError(404, 'x'))
-    vi.mocked(newsApi.refresh).mockRejectedValue(new ApiError(502, 'No recent articles'))
-    const w = await mountPanel()
-    await btn(w, 'Generate briefing')!.trigger('click')
-    await flushPromises()
-    expect(w.get('[role="alert"]').text()).toContain('No recent articles')
-    expect(btn(w, 'Generate briefing')!.attributes('disabled')).toBeUndefined()
-  })
-
-  it('shows a load error with retry', async () => {
-    vi.mocked(newsApi.today)
-      .mockRejectedValueOnce(new ApiError(0, 'Cannot reach the server'))
-      .mockResolvedValueOnce([news()] as never)
-    const w = await mountPanel()
-    expect(w.get('[role="alert"]').text()).toContain('Cannot reach the server')
-    await btn(w, 'Retry')!.trigger('click')
-    await flushPromises()
-    expect(w.get('a.headline').text()).toBe('Morning briefing')
-  })
-
-  it('surfaces a latest-lookup failure other than 404', async () => {
-    vi.mocked(newsApi.today).mockResolvedValue([])
-    vi.mocked(newsApi.latest).mockRejectedValue(new ApiError(500, 'db down'))
-    const w = await mountPanel()
     expect(w.get('[role="alert"]').text()).toContain('db down')
+    expect(w.text()).toContain('Call dentist')
   })
 
-  it('hosts the Plan my day button', async () => {
-    vi.mocked(newsApi.today).mockResolvedValue([news()] as never)
-    vi.mocked(agentsApi.planDay).mockResolvedValue({ date: '2026-01-02', items: [] })
+  it('shows a load error', async () => {
+    vi.mocked(tasksApi.list).mockRejectedValue(new ApiError(0, 'Cannot reach the server'))
+    const w = mount(TodayPanel)
+    await flushPromises()
+    expect(w.get('[role="alert"]').text()).toContain('Cannot reach the server')
+  })
+})
+
+describe('TodayPanel plan my day', () => {
+  it('shows the plan in the agent order with reasons, estimates and a total', async () => {
+    vi.mocked(agentsApi.planDay).mockResolvedValue(
+      plan({
+        items: [planned('t2', 'Write report', 90, 'big'), planned('t1', 'Call dentist', 30, 'closes early')],
+      }) as never,
+    )
+    const w = await mountPanel([task(), task({ id: 't2', title: 'Write report' })])
+    await btn(w, 'Plan my day')!.trigger('click')
+    await flushPromises()
+    const rows = w.findAll('.agenda li').map((li) => li.text())
+    expect(rows[0]).toContain('Write report')
+    expect(rows[0]).toContain('big')
+    expect(rows[0]).toContain('~1 h 30 min')
+    expect(rows[1]).toContain('~30 min')
+    expect(w.text()).toContain('Estimated total: 2 h')
+  })
+
+  it('ignores missing estimates in the total and omits it when none exist', async () => {
+    vi.mocked(agentsApi.planDay).mockResolvedValue(
+      plan({ items: [planned('t1', 'Call dentist', null, '')] }) as never,
+    )
     const w = await mountPanel()
     await btn(w, 'Plan my day')!.trigger('click')
     await flushPromises()
-    expect(agentsApi.planDay).toHaveBeenCalledTimes(1)
+    expect(w.text()).not.toContain('Estimated total')
+    expect(w.text()).not.toContain('~')
+  })
+
+  it('shows the week status, summary, numbers and goal checks', async () => {
+    vi.mocked(agentsApi.planDay).mockResolvedValue(
+      plan({
+        status: 'AT_RISK',
+        summary: 'Falling behind on work.',
+        goals: [
+          { goal_id: 'g1', title: 'Ship report', on_track: true, note: 'Drafted' },
+          { goal_id: 'g2', title: 'Exercise', on_track: false, note: 'No tasks logged' },
+        ],
+      }) as never,
+    )
+    const w = await mountPanel()
+    await btn(w, 'Plan my day')!.trigger('click')
+    await flushPromises()
+    const status = w.get('[aria-label="Week status"]')
+    expect(status.text()).toContain('At risk')
+    expect(status.text()).toContain('Falling behind on work.')
+    expect(status.text()).toContain('3 of 4 due so far done · 1 overdue · 2 later this week')
+    const goals = w.findAll('.goals li')
+    expect(goals[0].classes()).toContain('goal--ok')
+    expect(goals[1].classes()).toContain('goal--off')
+    expect(goals[1].text()).toContain('No tasks logged')
+  })
+
+  it('shows week numbers but no status line when the agent was skipped', async () => {
+    vi.mocked(agentsApi.planDay).mockResolvedValue(plan({ items: [], status: null, summary: '' }) as never)
+    const w = await mountPanel([])
+    await btn(w, 'Plan my day')!.trigger('click')
+    await flushPromises()
+    expect(w.text()).toContain('Nothing to plan.')
+    expect(w.find('.pill').exists()).toBe(false)
+    expect(w.text()).toContain('3 of 4 due so far done')
+  })
+
+  it('dismissing returns to the default agenda', async () => {
+    vi.mocked(agentsApi.planDay).mockResolvedValue(plan() as never)
+    const w = await mountPanel()
+    await btn(w, 'Plan my day')!.trigger('click')
+    await flushPromises()
+    await btn(w, 'Dismiss')!.trigger('click')
+    expect(w.find('[aria-label="Week status"]').exists()).toBe(false)
+    expect(w.text()).toContain('Call dentist')
+  })
+
+  it('shows an error and re-enables the button when the agent fails', async () => {
+    vi.mocked(agentsApi.planDay).mockRejectedValue(new ApiError(503, 'Agent unavailable'))
+    const w = await mountPanel()
+    await btn(w, 'Plan my day')!.trigger('click')
+    await flushPromises()
+    expect(w.get('[role="alert"]').text()).toContain('Agent unavailable')
+    expect(w.find('[aria-label="Week status"]').exists()).toBe(false)
+    expect(btn(w, 'Plan my day')!.attributes('disabled')).toBeUndefined()
+  })
+
+  it('disables the button while planning', async () => {
+    let resolve!: (v: never) => void
+    vi.mocked(agentsApi.planDay).mockReturnValue(new Promise((r) => (resolve = r as never)))
+    const w = await mountPanel()
+    await btn(w, 'Plan my day')!.trigger('click')
+    expect(btn(w, 'Planning…')!.attributes('disabled')).toBeDefined()
+    resolve(plan() as never)
+    await flushPromises()
+    expect(btn(w, 'Plan my day')!.attributes('disabled')).toBeUndefined()
   })
 })

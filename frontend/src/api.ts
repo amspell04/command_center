@@ -1,4 +1,4 @@
-import type { DayPlan, NewNote, News, NewTask, Note, Task } from './types'
+import type { DayPlan, Goal, NewGoal, NewNote, News, NewTask, Note, Task } from './types'
 
 const BASE = '/api'
 
@@ -50,6 +50,13 @@ export const notesApi = {
   create: (n: NewNote) => request<Note>('/notes', json('POST', n)),
   update: (id: string, changes: Partial<NewNote>) => request<Note>(`/notes/${id}`, json('PATCH', changes)),
   remove: (id: string) => request<void>(`/notes/${id}`, { method: 'DELETE' }),
+}
+
+export const goalsApi = {
+  list: () => request<Goal[]>('/goals'),
+  create: (g: NewGoal) => request<Goal>('/goals', json('POST', g)),
+  update: (id: string, changes: Partial<NewGoal>) => request<Goal>(`/goals/${id}`, json('PATCH', changes)),
+  remove: (id: string) => request<void>(`/goals/${id}`, { method: 'DELETE' }),
 }
 
 export const newsApi = {

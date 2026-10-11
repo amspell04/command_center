@@ -7,7 +7,7 @@ import pytest
 
 from backend.agents import runner
 from backend.agents.actions import UnknownAction, get_action
-from backend.agents.task_agent.agent import DayPlan, PlanItem
+from backend.agents.task_agent.agent import DayPlan, GoalCheck, PlanItem
 from backend.config import settings
 from backend.crud import notes as notes_crud
 from backend.services.api import agent_routes
@@ -25,6 +25,10 @@ def task(client, title, due, **over):
 
 def note(client, content="alpha beta gamma", title="n"):
     return client.post("/notes", json={"title": title, "content": content}).json()
+
+
+def plan(items, **over):
+    return DayPlan(items=items, **{"week_status": "ON_TRACK", "week_summary": "Fine.", **over})
 
 
 class FakeRun:
@@ -83,8 +87,8 @@ def test_plan_day_keeps_only_real_due_tasks_and_never_drops_one(client, monkeypa
     task(client, "future", TOMORROW)
     FakeRun(
         monkeypatch,
-        DayPlan(
-            items=[
+        plan(
+            [
                 PlanItem(task_id=uuid.UUID(b["id"]), reason="first", estimate_minutes=30),
                 PlanItem(task_id=uuid.uuid4(), reason="invented", estimate_minutes=10),
                 PlanItem(task_id=uuid.UUID(b["id"]), reason="duplicate", estimate_minutes=10),
@@ -98,9 +102,85 @@ def test_plan_day_keeps_only_real_due_tasks_and_never_drops_one(client, monkeypa
 
 def test_plan_day_for_a_later_date_includes_that_day(client, monkeypatch):
     t = task(client, "future", TOMORROW)
-    FakeRun(monkeypatch, DayPlan(items=[PlanItem(task_id=uuid.UUID(t["id"]), reason="r", estimate_minutes=15)]))
+    FakeRun(monkeypatch, plan([PlanItem(task_id=uuid.UUID(t["id"]), reason="r", estimate_minutes=15)]))
     r = post(client, "task", "plan_day", {"date": TOMORROW.isoformat()})
     assert [i["task_id"] for i in r.json()["items"]] == [t["id"]]
+
+
+def test_plan_day_reports_week_stats_and_status(client, monkeypatch):
+    monday = TODAY - timedelta(days=TODAY.weekday())
+    done = task(client, "done", monday)
+    client.patch(f"/tasks/{done['id']}/complete")
+    open_today = task(client, "today", TODAY)
+    task(client, "last week", monday - timedelta(days=1))  # outside the week
+    FakeRun(monkeypatch, plan([PlanItem(task_id=uuid.UUID(open_today["id"]), reason="r", estimate_minutes=15)], week_status="AT_RISK", week_summary="Behind."))
+    body = post(client, "task", "plan_day").json()
+    assert body["status"] == "AT_RISK" and body["summary"] == "Behind."
+    week = body["week"]
+    assert (week["start"], week["end"]) == (monday.isoformat(), (monday + timedelta(days=6)).isoformat())
+    assert (week["due_so_far"], week["completed_so_far"], week["overdue_open"]) == (2, 1, 0)
+
+
+def test_plan_day_week_stats_for_a_fixed_wednesday(client, monkeypatch):
+    for title, due in [("a", "2026-10-12"), ("b", "2026-10-13"), ("c", "2026-10-14"), ("d", "2026-10-16"), ("e", "2026-10-19")]:
+        t = client.post("/tasks", json={"title": title, "type": "WORK", "due_date": due}).json()
+        if title == "b":
+            client.patch(f"/tasks/{t['id']}/complete")
+    FakeRun(monkeypatch, plan([]))
+    week = post(client, "task", "plan_day", {"date": "2026-10-14"}).json()["week"]
+    assert week == {"start": "2026-10-12", "end": "2026-10-18", "due_so_far": 3, "completed_so_far": 1, "overdue_open": 1, "due_remaining": 1}
+
+
+def test_plan_day_without_due_tasks_still_returns_week_stats_and_no_status(client, monkeypatch):
+    FakeRun(monkeypatch)
+    r = post(client, "task", "plan_day").json()
+    assert r["status"] is None and r["summary"] == "" and r["goals"] == []
+    assert r["week"]["due_so_far"] == 0
+
+
+def test_plan_day_sends_week_numbers_and_goals_to_the_model(client, monkeypatch):
+    task(client, "today", TODAY)
+    g = client.post("/goals", json={"title": "Ship report", "details": "by Friday"}).json()
+    fake = FakeRun(monkeypatch, plan([]))
+    post(client, "task", "plan_day")
+    message = fake.calls[0][1]
+    assert g["id"] in message and "Ship report" in message and "by Friday" in message
+    assert "1 tasks due so far" in message
+
+
+def test_plan_day_message_says_when_no_goals_are_set(client, monkeypatch):
+    task(client, "today", TODAY)
+    fake = FakeRun(monkeypatch, plan([]))
+    post(client, "task", "plan_day")
+    assert "Goals: none set." in fake.calls[0][1]
+
+
+def test_plan_day_keeps_only_real_goal_checks_once_each(client, monkeypatch):
+    task(client, "today", TODAY)
+    g = client.post("/goals", json={"title": "Ship report"}).json()
+    FakeRun(
+        monkeypatch,
+        plan(
+            [],
+            goal_checks=[
+                GoalCheck(goal_id=uuid.UUID(g["id"]), on_track=True, note="first"),
+                GoalCheck(goal_id=uuid.uuid4(), on_track=False, note="invented"),
+                GoalCheck(goal_id=uuid.UUID(g["id"]), on_track=False, note="duplicate"),
+            ],
+        ),
+    )
+    goals = post(client, "task", "plan_day").json()["goals"]
+    assert goals == [{"goal_id": g["id"], "title": "Ship report", "on_track": True, "note": "first"}]
+
+
+def test_day_plan_rejects_an_unknown_week_status():
+    with pytest.raises(ValueError):
+        plan([], week_status="GREAT")
+
+
+def test_day_plan_requires_a_summary():
+    with pytest.raises(ValueError):
+        plan([], week_summary="")
 
 
 @pytest.mark.parametrize("minutes", [0, 4, 481, -5])

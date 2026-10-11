@@ -47,7 +47,39 @@ export interface PlannedTask {
   estimate_minutes: number | null
 }
 
+export type WeekStatus = 'ON_TRACK' | 'AT_RISK' | 'OFF_TRACK'
+
+export interface WeekStats {
+  start: string
+  end: string
+  due_so_far: number
+  completed_so_far: number
+  overdue_open: number
+  due_remaining: number
+}
+
+export interface GoalStatus {
+  goal_id: string
+  title: string
+  on_track: boolean
+  note: string
+}
+
+// status is null when the model was not run (nothing was due).
 export interface DayPlan {
   date: string
   items: PlannedTask[]
+  week: WeekStats
+  status: WeekStatus | null
+  summary: string
+  goals: GoalStatus[]
 }
+
+export interface Goal {
+  id: string
+  title: string
+  details: string
+  date_created: string
+}
+
+export type NewGoal = Omit<Goal, 'id' | 'date_created'>
