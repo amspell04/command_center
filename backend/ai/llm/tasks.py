@@ -1,16 +1,12 @@
 import uuid
-from pathlib import Path
+from datetime import date
 from typing import Literal
 
+from langchain_core.messages import HumanMessage, SystemMessage
+from langsmith import traceable
 from pydantic import BaseModel, Field
 
-from backend.agents.types import Action, load_instructions
-
-BASE_PROMPT = """You manage the user's tasks using the provided tools.
-Today is {today}. Dates are YYYY-MM-DD. Task type is WORK or PERSONAL.
-Never invent task ids; get them from list_tasks. Be brief."""
-
-_DIR = Path(__file__).parent
+from backend.ai.llm.client import get_llm, load_prompt
 
 
 class PlanItem(BaseModel):
@@ -34,8 +30,9 @@ class DayPlan(BaseModel):
     goal_checks: list[GoalCheck] = []
 
 
-ACTIONS = {
-    "plan_day": Action("task", "plan_day", load_instructions(_DIR, BASE_PROMPT, "plan_day"), ("list_tasks",), DayPlan),
-}
-
-ALLOWED_TOOLS = sorted({t for a in ACTIONS.values() for t in a.tools})
+@traceable(run_type="llm")
+async def plan_day(message: str) -> DayPlan:
+    """One structured model call: no tools, no DB access. The message carries the tasks, week numbers and goals."""
+    prompt = load_prompt("plan_day").replace("{today}", date.today().isoformat())
+    llm = get_llm("tasks").with_structured_output(DayPlan)
+    return await llm.ainvoke([SystemMessage(prompt), HumanMessage(message)])

@@ -1,11 +1,11 @@
-from collections.abc import Iterable
+from collections.abc import AsyncIterator, Iterable
 
 from langchain.agents import create_agent
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langsmith import traceable
 from pydantic import BaseModel
 
-from backend.agents.llm import get_llm
+from backend.ai.llm.client import get_llm
 from backend.config import settings
 
 
@@ -50,3 +50,17 @@ async def run_agent(
     else:
         output = messages[-1].content
     return {"output": output, "messages": messages}
+
+
+async def stream_agent(
+    name: str, system_prompt: str, tools: list, messages: list[dict], recursion_limit: int = 25
+) -> AsyncIterator:
+    """Run a tool-calling agent over a conversation, yielding model token chunks and tool results as they happen.
+
+    `tools` are ready-made tool objects (not MCP allow-list names), so a caller can bind them to its own data.
+    """
+    agent = create_agent(get_llm(name), tools, system_prompt=system_prompt, name=name)
+    async for chunk, _metadata in agent.astream(
+        {"messages": messages}, {"recursion_limit": recursion_limit}, stream_mode="messages"
+    ):
+        yield chunk

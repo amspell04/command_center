@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import date
 
-from sqlalchemy import Boolean, Date, Enum, Index, String, Text, func, text
+from sqlalchemy import Boolean, Date, Enum, ForeignKey, Index, String, Text, func, text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -42,6 +42,18 @@ class Note(Base):
     title: Mapped[str] = mapped_column(String(255))
     # One markdown document
     content: Mapped[str] = mapped_column(Text, default="", server_default=text("''"))
+    date_created: Mapped[date] = _date_created()
+
+
+class WeakPoint(Base):
+    __tablename__ = "weak_points"
+    # One row per topic per note, compared case-insensitively
+    __table_args__ = (Index("uq_weak_points_note_topic", "note_id", func.lower(text("topic")), unique=True),)
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    note_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("notes.id", ondelete="CASCADE"), index=True)
+    topic: Mapped[str] = mapped_column(String(120))
+    resolved: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
     date_created: Mapped[date] = _date_created()
 
 

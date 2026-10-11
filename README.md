@@ -32,13 +32,9 @@ python -m backend.services.mcp.server
 ```
 Host and port come from `MCP_HOST` / `MCP_PORT`; agents find it through `MCP_URL`.
 
-**4. Agents**
+**4. LLM calls and agents**
 
-The agents are not separate processes. They are async functions that connect to the MCP server (tasks, notes) and to Ollama, so start Ollama and the MCP server first (`ollama serve` if it is not already running).
-```bash
-python -c "import asyncio; from backend.agents.task_agent.agent import run_task_agent; print(asyncio.run(run_task_agent('add a task to call the dentist Friday'))['output'])"
-```
-Use `run_notes_agent(message)` from `backend.agents.notes_agent.agent` the same way. `summarize_news(articles, sources)` in `backend.agents.news_agent.agent` needs only Ollama; it is meant to be called by the daily job. There are no `/agents` API endpoints yet.
+`backend/ai/llm/` holds plain model calls (news briefing, note summary, day plan). They need only Ollama (`ollama serve` if it is not already running) and are reached through `/api/agents/<agent>/actions/<name>` and the briefing service. `backend/ai/agents/` holds tool-calling agents, which also connect to the MCP server, so start it (step 3) first.
 
 **5. Frontend** (http://localhost:5173, proxies `/api` to the API on port 8000)
 ```bash

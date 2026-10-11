@@ -8,21 +8,26 @@ from backend.crud import goals as goals_crud
 from backend.crud import news as news_crud
 from backend.crud import notes as notes_crud
 from backend.crud import tasks as tasks_crud
+from backend.crud import weak_points as weak_points_crud
 from backend.db.session import get_db
 from backend.models.goal import Goal
 from backend.models.news import News
 from backend.models.note import Note
 from backend.models.task import Task, TaskType
+from backend.models.weak_point import WeakPoint
 from backend.crud.schemas.goal import GoalCreate, GoalUpdate
 from backend.crud.schemas.note import NoteCreate, NoteUpdate
 from backend.crud.schemas.task import TaskCreate, TaskUpdate
+from backend.crud.schemas.weak_point import WeakPointUpdate
 from backend.services.api.agent_routes import router as agents_router
+from backend.services.api.study_buddy_routes import router as study_buddy_router
 from backend.services.helpers import _changes, _found, guarded
 from backend.services.news.briefing import BriefingExists, NoArticles, generate_briefing
 
 
 app = FastAPI(title="Command Center API")
 app.include_router(agents_router)
+app.include_router(study_buddy_router)
 
 # NEWS
 
@@ -93,6 +98,22 @@ def update_notes(note_id: uuid.UUID, body: NoteUpdate, db: Session = Depends(get
 @app.delete("/notes/{note_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_note(note_id: uuid.UUID, db: Session = Depends(get_db)):
     _found(notes_crud.delete_note(db, note_id) or None, "Note")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+# WEAK POINTS
+
+@app.get("/notes/{note_id}/weak_points", response_model=list[WeakPoint])
+def list_weak_points(note_id: uuid.UUID, resolved: bool | None = None, db: Session = Depends(get_db)):
+    _found(notes_crud.get_note(db, note_id), "Note")
+    return weak_points_crud.list_weak_points(db, note_id, resolved)
+
+@app.patch("/weak_points/{weak_point_id}", response_model=WeakPoint)
+def update_weak_point(weak_point_id: uuid.UUID, body: WeakPointUpdate, db: Session = Depends(get_db)):
+    return _found(weak_points_crud.update_weak_point(db, weak_point_id, **_changes(body)), "Weak point")
+
+@app.delete("/weak_points/{weak_point_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_weak_point(weak_point_id: uuid.UUID, db: Session = Depends(get_db)):
+    _found(weak_points_crud.delete_weak_point(db, weak_point_id) or None, "Weak point")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 # GOALS

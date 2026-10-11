@@ -5,10 +5,11 @@ from collections.abc import Awaitable
 
 from fastapi import HTTPException, status
 from langchain.agents.structured_output import StructuredOutputError
+from langchain_core.exceptions import OutputParserException
 from langgraph.errors import GraphRecursionError
 from pydantic import BaseModel, ValidationError
 
-from backend.agents.runner import AgentOutputError
+from backend.ai.agents.runner import AgentOutputError
 from backend.config import settings
 
 logger = logging.getLogger(__name__)
@@ -39,7 +40,7 @@ async def guarded(label: str, work: Awaitable, passthrough: tuple[type[Exception
         raise
     except asyncio.TimeoutError:
         raise HTTPException(504, "The agent timed out")
-    except (StructuredOutputError, AgentOutputError, ValidationError, GraphRecursionError):
+    except (StructuredOutputError, OutputParserException, AgentOutputError, ValidationError, GraphRecursionError):
         logger.exception("agent %s returned unusable output", label)
         raise HTTPException(502, "The agent returned an unusable response, try again")
     except Exception:

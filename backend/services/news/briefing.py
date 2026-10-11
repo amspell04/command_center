@@ -3,7 +3,7 @@ import asyncio
 
 from sqlalchemy.orm import Session
 
-from backend.agents.news_agent.agent import summarize_news
+from backend.ai.llm.news import summarize_news
 from backend.crud import news as news_crud
 from backend.db.models import News
 from backend.services.news.news import fetch_articles, format_for_agent

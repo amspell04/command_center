@@ -4,14 +4,14 @@ from datetime import date, timedelta
 from types import SimpleNamespace
 
 import pytest
+from langchain_core.exceptions import OutputParserException
 
-from backend.agents import runner
-from backend.agents.actions import UnknownAction, get_action
-from backend.agents.task_agent.agent import DayPlan, GoalCheck, PlanItem
+from backend.ai.agents import runner
+from backend.ai.llm import notes as notes_llm
+from backend.ai.llm import tasks as tasks_llm
+from backend.ai.llm.client import load_prompt
+from backend.ai.llm.tasks import DayPlan, GoalCheck, PlanItem
 from backend.config import settings
-from backend.crud import notes as notes_crud
-from backend.services.api import agent_routes
-from backend.tests.conftest import TestSession
 
 TODAY = date.today()
 YESTERDAY = TODAY - timedelta(days=1)
@@ -27,25 +27,35 @@ def note(client, content="alpha beta gamma", title="n"):
     return client.post("/notes", json={"title": title, "content": content}).json()
 
 
+def saved_content(client, note_id):
+    return next(n["content"] for n in client.get("/notes").json() if n["id"] == note_id)
+
+
 def plan(items, **over):
     return DayPlan(items=items, **{"week_status": "ON_TRACK", "week_summary": "Fine.", **over})
 
 
-class FakeRun:
-    """Stands in for run_action; records calls and returns or raises what the test set."""
+class FakeLLM:
+    """Stands in for one llm function; records its args and returns or raises what the test set."""
 
-    def __init__(self, monkeypatch, result=None, exc=None, side_effect=None):
+    def __init__(self, monkeypatch, module, name, result=None, exc=None):
         self.calls = []
-        self.result, self.exc, self.side_effect = result, exc, side_effect
-        monkeypatch.setattr(agent_routes, "run_action", self)
+        self.result, self.exc = result, exc
+        monkeypatch.setattr(module, name, self)
 
-    async def __call__(self, action, message):
-        self.calls.append((action.name, message))
-        if self.side_effect:
-            self.side_effect()
+    async def __call__(self, *args):
+        self.calls.append(args)
         if self.exc:
             raise self.exc
         return self.result
+
+
+def FakeRun(monkeypatch, result=None, exc=None):
+    return FakeLLM(monkeypatch, tasks_llm, "plan_day", result, exc)
+
+
+def FakeSummary(monkeypatch, result="A short summary.", exc=None):
+    return FakeLLM(monkeypatch, notes_llm, "summarize_note", result, exc)
 
 
 def post(client, agent, name, body=None):
@@ -61,12 +71,12 @@ def test_unknown_agent_or_action_is_404(client):
 
 
 def test_bad_params_are_rejected_before_the_model_runs(client, monkeypatch):
-    fake = FakeRun(monkeypatch)
+    fake, summary = FakeRun(monkeypatch), FakeSummary(monkeypatch)
     assert post(client, "task", "plan_day", {"bogus": 1}).status_code == 422
     assert post(client, "task", "plan_day", {"date": "not-a-date"}).status_code == 422
     assert post(client, "notes", "summarize_note", {}).status_code == 422
     assert post(client, "notes", "summarize_note", {"note_id": "nope"}).status_code == 422
-    assert fake.calls == []
+    assert fake.calls == [] and summary.calls == []
 
 
 # plan_day
@@ -143,16 +153,31 @@ def test_plan_day_sends_week_numbers_and_goals_to_the_model(client, monkeypatch)
     g = client.post("/goals", json={"title": "Ship report", "details": "by Friday"}).json()
     fake = FakeRun(monkeypatch, plan([]))
     post(client, "task", "plan_day")
-    message = fake.calls[0][1]
+    message = fake.calls[0][0]
     assert g["id"] in message and "Ship report" in message and "by Friday" in message
     assert "1 tasks due so far" in message
+
+
+def test_plan_day_sends_the_due_tasks_with_ids_and_requirements(client, monkeypatch):
+    a = task(client, "overdue", YESTERDAY, requirement="needs the report")
+    b = task(client, "today", TODAY)
+    task(client, "future", TOMORROW)
+    done = task(client, "done", TODAY)
+    client.patch(f"/tasks/{done['id']}/complete")
+    fake = FakeRun(monkeypatch, plan([]))
+    post(client, "task", "plan_day")
+    message = fake.calls[0][0]
+    assert f"id {a['id']}: overdue" in message and "requirement: needs the report" in message
+    assert f"id {b['id']}: today" in message
+    assert "future" not in message and "done" not in message
+    assert message.index("overdue") < message.index("today")  # earliest due first
 
 
 def test_plan_day_message_says_when_no_goals_are_set(client, monkeypatch):
     task(client, "today", TODAY)
     fake = FakeRun(monkeypatch, plan([]))
     post(client, "task", "plan_day")
-    assert "Goals: none set." in fake.calls[0][1]
+    assert "Goals: none set." in fake.calls[0][0]
 
 
 def test_plan_day_keeps_only_real_goal_checks_once_each(client, monkeypatch):
@@ -194,14 +219,15 @@ def test_plan_item_requires_an_estimate():
         PlanItem(task_id=uuid.uuid4(), reason="r")
 
 
-def test_plan_day_instructions_ask_for_estimates():
-    assert "minutes" in get_action("task", "plan_day").instructions
+def test_plan_day_prompt_asks_for_estimates_and_needs_no_tools():
+    prompt = load_prompt("plan_day")
+    assert "minutes" in prompt and "list_tasks" not in prompt and "{today}" in prompt
 
 
 # summarize_note
 
 def test_summarize_unknown_or_empty_note(client, monkeypatch):
-    fake = FakeRun(monkeypatch)
+    fake = FakeSummary(monkeypatch)
     assert post(client, "notes", "summarize_note", {"note_id": str(uuid.uuid4())}).status_code == 404
     empty = note(client, content="", title="empty")
     assert post(client, "notes", "summarize_note", {"note_id": empty["id"]}).status_code == 400
@@ -210,30 +236,35 @@ def test_summarize_unknown_or_empty_note(client, monkeypatch):
     assert fake.calls == []
 
 
-def append_text(note_id, content):
-    def write():
-        with TestSession() as db:
-            n = notes_crud.get_note(db, uuid.UUID(note_id))
-            notes_crud.update_note(db, n.id, content=f"{n.content}\n\n{content}")
-
-    return write
-
-
-def test_summarize_returns_note_with_summary_appended(client, monkeypatch):
-    n = note(client)
-    fake = FakeRun(monkeypatch, "done", side_effect=append_text(n["id"], "Summary: short"))
+def test_summarize_appends_the_summary_and_returns_the_note(client, monkeypatch):
+    n = note(client, title="Cells")
+    fake = FakeSummary(monkeypatch, "Short.")
     r = post(client, "notes", "summarize_note", {"note_id": n["id"]})
     assert r.status_code == 200
-    assert r.json()["content"] == "alpha beta gamma\n\nSummary: short"
-    assert n["id"] in fake.calls[0][1] and "alpha beta gamma" in fake.calls[0][1]
+    assert r.json()["content"] == "alpha beta gamma\n\nSummary: Short."
+    assert fake.calls == [("Cells", "alpha beta gamma")]
+    assert saved_content(client, n["id"]) == r.json()["content"]
 
 
-def test_summarize_fails_when_agent_saved_nothing_or_the_wrong_thing(client, monkeypatch):
+def test_summarize_does_not_double_the_label(client, monkeypatch):
     n = note(client)
-    FakeRun(monkeypatch, "I summarized it")
+    FakeSummary(monkeypatch, "Summary: Short.")
+    assert post(client, "notes", "summarize_note", {"note_id": n["id"]}).json()["content"].endswith("\n\nSummary: Short.")
+
+
+@pytest.mark.parametrize("reply", ["", "   ", "Summary:"])
+def test_summarize_with_an_empty_reply_is_502_and_saves_nothing(client, monkeypatch, reply):
+    n = note(client)
+    FakeSummary(monkeypatch, reply)
     assert post(client, "notes", "summarize_note", {"note_id": n["id"]}).status_code == 502
-    FakeRun(monkeypatch, "x", side_effect=append_text(n["id"], "not a summary"))
-    assert post(client, "notes", "summarize_note", {"note_id": n["id"]}).status_code == 502
+    assert saved_content(client, n["id"]) == "alpha beta gamma"
+
+
+def test_summarize_failure_saves_nothing(client, monkeypatch):
+    n = note(client)
+    FakeSummary(monkeypatch, exc=ConnectionError("down"))
+    assert post(client, "notes", "summarize_note", {"note_id": n["id"]}).status_code == 503
+    assert saved_content(client, n["id"]) == "alpha beta gamma"
 
 
 # failure mapping
@@ -242,11 +273,11 @@ def test_summarize_fails_when_agent_saved_nothing_or_the_wrong_thing(client, mon
     "exc, status",
     [
         (ConnectionError("down"), 503),
-        (RuntimeError("MCP server is missing tools"), 503),
         (runner.AgentOutputError("no structure"), 502),
+        (OutputParserException("bad json"), 502),
     ],
 )
-def test_agent_failures_map_to_http_errors(client, monkeypatch, exc, status):
+def test_llm_failures_map_to_http_errors(client, monkeypatch, exc, status):
     task(client, "overdue", YESTERDAY)
     FakeRun(monkeypatch, exc=exc)
     assert post(client, "task", "plan_day").status_code == status
@@ -255,29 +286,15 @@ def test_agent_failures_map_to_http_errors(client, monkeypatch, exc, status):
 def test_timeout_is_504(client, monkeypatch):
     task(client, "overdue", YESTERDAY)
 
-    async def slow(action, message):
+    async def slow(message):
         await asyncio.sleep(1)
 
-    monkeypatch.setattr(agent_routes, "run_action", slow)
+    monkeypatch.setattr(tasks_llm, "plan_day", slow)
     monkeypatch.setattr(settings, "agent_timeout_seconds", 0.01)
     assert post(client, "task", "plan_day").status_code == 504
 
 
-# framework
-
-def test_get_action_unknown_raises():
-    with pytest.raises(UnknownAction):
-        get_action("task", "nope")
-    with pytest.raises(UnknownAction):
-        get_action("nope", "plan_day")
-
-
-def test_actions_carry_base_and_action_prompt_and_read_only_tools():
-    plan = get_action("task", "plan_day")
-    assert "manage the user's tasks" in plan.instructions and "plan the user's day" in plan.instructions
-    assert plan.tools == ("list_tasks",)  # read only: no update tool
-    assert get_action("notes", "summarize_note").tools == ("append_note_content",)
-
+# runner (tool-calling loop, used by agents)
 
 class FakeAgent:
     def __init__(self, result):

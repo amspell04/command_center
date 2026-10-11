@@ -1,5 +1,5 @@
-"""Single-shot agent actions. Routes load the data an action needs, run the agent, and check its output
-against the database before returning it, so a small model's invented ids or quotes never reach the UI."""
+"""Single-shot LLM actions. Routes load the data an action needs, make one model call, and check its output
+against the database before returning it, so a small model's invented ids never reach the UI."""
 import uuid
 from collections.abc import Awaitable, Callable
 from typing import Literal
@@ -10,13 +10,14 @@ from fastapi import APIRouter, Body, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, ValidationError
 from sqlalchemy.orm import Session
 
-from backend.agents.actions import get_action, run_action
+from backend.ai.llm import notes as notes_llm
+from backend.ai.llm import tasks as tasks_llm
 from backend.crud import goals as goals_crud
 from backend.crud import notes as notes_crud
 from backend.crud import tasks as tasks_crud
 from backend.db.session import get_db
 from backend.models.note import Note
-from backend.services.helpers import guarded
+from backend.services.helpers import _found, guarded
 
 router = APIRouter(prefix="/agents", tags=["agents"])
 
@@ -68,10 +69,6 @@ class DayPlanResult(BaseModel):
     goals: list[GoalStatus] = []
 
 
-async def _run(agent: str, name: str, message: str):
-    return await guarded(f"{agent}/{name}", run_action(get_action(agent, name), message))
-
-
 def _note_or_404(db: Session, note_id: uuid.UUID):
     note = notes_crud.get_note(db, note_id)
     if note is None:
@@ -102,9 +99,11 @@ def _week_stats(tasks, day: date) -> WeekStats:
     )
 
 
-def _plan_message(day: date, week: WeekStats, goals) -> str:
+def _plan_message(day: date, week: WeekStats, goals, due) -> str:
     lines = [
         f"Plan my day for {day.isoformat()}.",
+        "Tasks to plan:",
+        *(f"- id {t.id}: {t.title} (due {t.due_date})" + (f", requirement: {t.requirement}" if t.requirement else "") for t in due),
         f"Week {week.start} to {week.end}: {week.due_so_far} tasks due so far, {week.completed_so_far} completed, "
         f"{week.overdue_open} overdue and open, {week.due_remaining} due later this week.",
         "Goals:" if goals else "Goals: none set.",
@@ -121,7 +120,8 @@ async def plan_day(db: Session, p: PlanDayParams) -> DayPlanResult:
     if not due:
         return DayPlanResult(date=day, items=[], week=week)
     goals = goals_crud.list_goals(db)
-    plan = await _run("task", "plan_day", _plan_message(day, week, goals))
+    message = _plan_message(day, week, goals, sorted(due.values(), key=lambda t: t.due_date))
+    plan = await guarded("tasks/plan_day", tasks_llm.plan_day(message))
     items, seen = [], set()
     for item in plan.items:
         task = due.get(item.task_id)
@@ -142,13 +142,12 @@ async def plan_day(db: Session, p: PlanDayParams) -> DayPlanResult:
 async def summarize_note(db: Session, p: NoteParams) -> Note:
     note = _note_or_404(db, p.note_id)
     text = _note_text(note)
-    before = note.content
-    await _run("notes", "summarize_note", f"note_id: {note.id}\ntitle: {note.title}\n\n{text}")
-    db.refresh(note)  # the MCP server wrote in its own session
-    added = note.content[len(before):].strip() if note.content.startswith(before) else ""
-    if not added.startswith("Summary:"):
-        raise HTTPException(502, "The agent did not save a summary, try again")
-    return Note.model_validate(note, from_attributes=True)
+    summary = (await guarded("notes/summarize_note", notes_llm.summarize_note(note.title, text))).strip()
+    summary = summary.removeprefix("Summary:").strip()  # the route adds the label itself
+    if not summary:
+        raise HTTPException(502, "The agent returned an unusable response, try again")
+    saved = notes_crud.update_note(db, note.id, content=f"{note.content.rstrip()}\n\nSummary: {summary}")
+    return Note.model_validate(_found(saved, "Note"), from_attributes=True)
 
 
 HANDLERS: dict[tuple[str, str], tuple[type[Params], Callable[[Session, Params], Awaitable[BaseModel]]]] = {
