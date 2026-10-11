@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import Text, cast, delete, or_, select, update
+from sqlalchemy import delete, or_, select, update
 from sqlalchemy.orm import Session
 
 from backend.db.models import Note
@@ -19,16 +19,16 @@ def get_note(db: Session, note_id: uuid.UUID) -> Note | None:
 
 
 def list_notes(db: Session, q: str | None = None) -> list[Note]:
-    """`q` matches case-insensitively against the title and the block text."""
+    """`q` matches case-insensitively against the title and the content."""
     stmt = select(Note).order_by(Note.date_created.desc(), Note.title)
     if q:
         pattern = f"%{q}%"
-        stmt = stmt.where(or_(Note.title.ilike(pattern), cast(Note.content_blocks, Text).ilike(pattern)))
+        stmt = stmt.where(or_(Note.title.ilike(pattern), Note.content.ilike(pattern)))
     return list(db.scalars(stmt))
 
 
 def update_note(db: Session, note_id: uuid.UUID, **fields) -> Note | None:
-    """Partial update. `fields` must be JSON-mode values (blocks as dicts)."""
+    """Partial update. `fields` must be JSON-mode values ."""
     stmt = update(Note).where(Note.id == note_id).values(**fields).returning(Note)
     note = db.scalars(stmt).one_or_none()
     db.commit()

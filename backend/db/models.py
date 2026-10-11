@@ -40,8 +40,17 @@ class Note(Base):
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     title: Mapped[str] = mapped_column(String(255))
-    # Ordered list of {"content": str}, mirrors NoteBlock in backend/models/note.py
-    content_blocks: Mapped[list] = mapped_column(JSONB, default=list, server_default=text("'[]'::jsonb"))
+    # One markdown document
+    content: Mapped[str] = mapped_column(Text, default="", server_default=text("''"))
+    date_created: Mapped[date] = _date_created()
+
+
+class Goal(Base):
+    __tablename__ = "goals"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    title: Mapped[str] = mapped_column(String(255))
+    details: Mapped[str] = mapped_column(Text, default="", server_default=text("''"))
     date_created: Mapped[date] = _date_created()
 
 

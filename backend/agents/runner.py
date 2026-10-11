@@ -2,6 +2,7 @@ from collections.abc import Iterable
 
 from langchain.agents import create_agent
 from langchain_mcp_adapters.client import MultiServerMCPClient
+from langsmith import traceable
 from pydantic import BaseModel
 
 from backend.agents.llm import get_llm
@@ -24,7 +25,7 @@ async def load_tools(allowed: Iterable[str]):
         raise RuntimeError(f"MCP server is missing tools: {sorted(missing)}")
     return [by_name[name] for name in allowed]
 
-
+@traceable(run_type="chain")
 async def run_agent(
     name: str,
     system_prompt: str,

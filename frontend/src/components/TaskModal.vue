@@ -72,12 +72,12 @@ function remove() {
       <label>Requirement <textarea v-model="form.requirement" aria-label="Requirement" rows="3" /></label>
       <p v-if="error" class="error" role="alert">{{ error }}</p>
       <div class="actions">
-        <button type="submit" :disabled="busy">{{ task ? 'Save' : 'Create' }}</button>
+        <button type="submit" class="btn--primary" :disabled="busy">{{ task ? 'Save' : 'Create' }}</button>
         <template v-if="task">
           <button type="button" :disabled="busy" @click="toggleComplete">
             {{ task.completed ? 'Mark incomplete' : 'Mark complete' }}
           </button>
-          <button type="button" :disabled="busy" @click="remove">Delete</button>
+          <button type="button" class="btn--danger" :disabled="busy" @click="remove">Delete</button>
         </template>
       </div>
     </form>
@@ -88,21 +88,22 @@ function remove() {
 .form {
   display: flex;
   flex-direction: column;
-  gap: 0.6rem;
-  margin-top: 0.75rem;
+  gap: var(--space-3);
 }
 label {
   display: flex;
   flex-direction: column;
-  gap: 0.2rem;
-  font-size: 0.85rem;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+  font-weight: 500;
 }
 .actions {
   display: flex;
-  gap: 0.5rem;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
 }
-.error {
-  color: #c33;
-  margin: 0;
+.actions .btn--danger {
+  margin-left: auto;
 }
 </style>

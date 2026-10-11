@@ -24,11 +24,17 @@ describe('api client', () => {
 
   it('surfaces string detail on 404', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(respond(404, { detail: 'Task not found' })))
-    await expect(tasksApi.complete('x')).rejects.toMatchObject({ status: 404, message: 'Task not found' })
+    await expect(tasksApi.complete('x')).rejects.toMatchObject({
+      status: 404,
+      message: 'Task not found',
+    })
   })
 
   it('joins validation errors on 422', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(respond(422, { detail: [{ msg: 'bad' }, { msg: 'worse' }] })))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(respond(422, { detail: [{ msg: 'bad' }, { msg: 'worse' }] })),
+    )
     await expect(tasksApi.list()).rejects.toThrow('bad; worse')
   })
 
@@ -45,7 +51,7 @@ describe('api client', () => {
 
 describe('agent and news endpoints', () => {
   const stub = (status = 200, body: unknown = {}) => {
-    const fetchMock = vi.fn().mockResolvedValue(respond(status, body))
+    const fetchMock = vi.fn().mockImplementation(async () => respond(status, body))
     vi.stubGlobal('fetch', fetchMock)
     return fetchMock
   }
@@ -53,17 +59,13 @@ describe('agent and news endpoints', () => {
   it('POSTs agent actions to /api/agents/<agent>/actions/<name>', async () => {
     const f = stub()
     await agentsApi.planDay()
-    await agentsApi.overdueSweep()
     await agentsApi.summarizeNote('n1')
-    await agentsApi.critiqueNote('n1')
     expect(f.mock.calls.map(([url]) => url)).toEqual([
       '/api/agents/task/actions/plan_day',
-      '/api/agents/task/actions/overdue_sweep',
       '/api/agents/notes/actions/summarize_note',
-      '/api/agents/notes/actions/critique_note',
     ])
     expect(f.mock.calls.every(([, init]) => init.method === 'POST')).toBe(true)
-    expect(JSON.parse(f.mock.calls[2][1].body)).toEqual({ note_id: 'n1' })
+    expect(JSON.parse(f.mock.calls[1][1].body)).toEqual({ note_id: 'n1' })
   })
 
   it('POSTs the briefing refresh with no body', async () => {
@@ -71,6 +73,13 @@ describe('agent and news endpoints', () => {
     await newsApi.refresh()
     expect(f.mock.calls[0][0]).toBe('/api/news/refresh')
     expect(f.mock.calls[0][1]).toMatchObject({ method: 'POST' })
+  })
+
+  it('GETs the latest briefing and a briefing by id', async () => {
+    const f = stub()
+    await newsApi.latest()
+    await newsApi.get('b1')
+    expect(f.mock.calls.map(([url]) => url)).toEqual(['/api/news/latest', '/api/news/b1'])
   })
 
   it('surfaces agent error details', async () => {

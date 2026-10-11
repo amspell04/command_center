@@ -46,6 +46,14 @@ cd frontend
 npm run dev
 ```
 
+## Reset the database
+Stops the container and deletes the `pgdata` volume. This erases all data, including the test database; rerun the `CREATE DATABASE` step under Tests afterwards.
+```bash
+docker compose down -v
+docker compose up -d db
+alembic upgrade head
+```
+
 ## Tests
 ```bash
 # one-time: create the throwaway test database

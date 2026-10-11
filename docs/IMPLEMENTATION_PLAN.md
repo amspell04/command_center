@@ -39,7 +39,7 @@ docker-compose.yml                       postgres
 ### Data model
 Mirrors the Pydantic models in `backend/models/`. All ids are UUIDs (`gen_random_uuid()`), `date_created` defaults to the current date. ORM in `backend/db/models.py`, migrations in `alembic/versions/` (`0001_initial`).
 - `tasks`: id, title, type (enum `WORK`/`PERSONAL`), requirement, due_date, completed, date_created. Indexed on (due_date, completed)
-- `notes`: id, title, content_blocks (jsonb list of `{content}`), date_created
+- `notes`: id, title, content (text, one markdown document), date_created
 - `news`: id, title, summary, quiz_section (jsonb list of `{question, answer}`), sources (text[]), date_created. Indexed on date_created
 
 ### Agents

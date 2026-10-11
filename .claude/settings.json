@@ -1,5 +1,7 @@
 {
   "enabledPlugins": {
-    "caveman@anthropic-plugin-directory": true
+    "caveman@anthropic-plugin-directory": true,
+    "figma@claude-plugins-official": true,
+    "ui-theme-designer@anthropic-plugin-directory": true
   }
 }

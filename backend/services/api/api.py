@@ -4,13 +4,16 @@ from datetime import date
 from fastapi import Depends, FastAPI, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
+from backend.crud import goals as goals_crud
 from backend.crud import news as news_crud
 from backend.crud import notes as notes_crud
 from backend.crud import tasks as tasks_crud
 from backend.db.session import get_db
+from backend.models.goal import Goal
 from backend.models.news import News
 from backend.models.note import Note
 from backend.models.task import Task, TaskType
+from backend.crud.schemas.goal import GoalCreate, GoalUpdate
 from backend.crud.schemas.note import NoteCreate, NoteUpdate
 from backend.crud.schemas.task import TaskCreate, TaskUpdate
 from backend.services.api.agent_routes import router as agents_router
@@ -26,6 +29,14 @@ app.include_router(agents_router)
 @app.get("/news/today", response_model=list[News])
 def get_todays_news(db: Session = Depends(get_db)):
     return news_crud.list_todays_news(db)
+
+@app.get("/news/latest", response_model=News)
+def get_latest_news(db: Session = Depends(get_db)):
+    return _found(news_crud.get_latest_news(db), "Briefing")
+
+@app.get("/news/{news_id}", response_model=News)
+def get_news(news_id: uuid.UUID, db: Session = Depends(get_db)):
+    return _found(news_crud.get_news(db, news_id), "Briefing")
 
 @app.post("/news/refresh", response_model=News, status_code=status.HTTP_201_CREATED)
 async def refresh_news(db: Session = Depends(get_db)):
@@ -82,4 +93,23 @@ def update_notes(note_id: uuid.UUID, body: NoteUpdate, db: Session = Depends(get
 @app.delete("/notes/{note_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_note(note_id: uuid.UUID, db: Session = Depends(get_db)):
     _found(notes_crud.delete_note(db, note_id) or None, "Note")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+# GOALS
+
+@app.post("/goals", response_model=Goal, status_code=status.HTTP_201_CREATED)
+def create_goal(body: GoalCreate, db: Session = Depends(get_db)):
+    return goals_crud.create_goal(db, body)
+
+@app.get("/goals", response_model=list[Goal])
+def list_goals(db: Session = Depends(get_db)):
+    return goals_crud.list_goals(db)
+
+@app.patch("/goals/{goal_id}", response_model=Goal)
+def update_goal(goal_id: uuid.UUID, body: GoalUpdate, db: Session = Depends(get_db)):
+    return _found(goals_crud.update_goal(db, goal_id, **_changes(body)), "Goal")
+
+@app.delete("/goals/{goal_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_goal(goal_id: uuid.UUID, db: Session = Depends(get_db)):
+    _found(goals_crud.delete_goal(db, goal_id) or None, "Goal")
     return Response(status_code=status.HTTP_204_NO_CONTENT)

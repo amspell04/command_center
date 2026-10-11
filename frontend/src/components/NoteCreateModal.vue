@@ -16,7 +16,7 @@ async function create() {
   error.value = null
   busy.value = true
   try {
-    emit('created', await notesApi.create({ title: t, content_blocks: [] }))
+    emit('created', await notesApi.create({ title: t, content: '' }))
     emit('close')
   } catch (e) {
     error.value = errorMessage(e)
@@ -31,7 +31,7 @@ async function create() {
     <form class="form" @submit.prevent="create">
       <label>Title <input v-model="title" aria-label="Note title" required maxlength="255" /></label>
       <p v-if="error" class="error" role="alert">{{ error }}</p>
-      <button type="submit" :disabled="busy">Create</button>
+      <button type="submit" class="btn--primary" :disabled="busy">Create</button>
     </form>
   </BaseModal>
 </template>
@@ -40,17 +40,16 @@ async function create() {
 .form {
   display: flex;
   flex-direction: column;
-  gap: 0.6rem;
-  margin-top: 0.75rem;
+  gap: var(--space-3);
 }
 label {
   display: flex;
   flex-direction: column;
-  gap: 0.2rem;
-  font-size: 0.85rem;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+  font-weight: 500;
 }
-.error {
-  color: #c33;
-  margin: 0;
+.form button[type='submit'] {
+  align-self: flex-end;
 }
 </style>

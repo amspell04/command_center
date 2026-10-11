@@ -1,14 +1,19 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import { agentsApi, errorMessage, tasksApi } from '../api'
-import type { DayPlan, SweepProposal, Task } from '../types'
-
-const emit = defineEmits<{ updated: [task: Task] }>()
+import { computed, ref } from 'vue'
+import { agentsApi, errorMessage } from '../api'
+import type { DayPlan } from '../types'
 
 const plan = ref<DayPlan | null>(null)
-const proposals = ref<SweepProposal[] | null>(null)
-const busy = ref<'plan' | 'sweep' | null>(null)
+const busy = ref<'plan' | null>(null)
 const error = ref<string | null>(null)
+
+function duration(minutes: number): string {
+  const h = Math.floor(minutes / 60)
+  const m = minutes % 60
+  return h ? (m ? `${h} h ${m} min` : `${h} h`) : `${m} min`
+}
+
+const totalMinutes = computed(() => plan.value?.items.reduce((sum, i) => sum + (i.estimate_minutes ?? 0), 0) ?? 0)
 
 async function planDay() {
   busy.value = 'plan'
@@ -20,39 +25,12 @@ async function planDay() {
   }
   busy.value = null
 }
-
-async function sweep() {
-  busy.value = 'sweep'
-  error.value = null
-  try {
-    proposals.value = (await agentsApi.overdueSweep()).proposals
-  } catch (e) {
-    error.value = errorMessage(e)
-  }
-  busy.value = null
-}
-
-const drop = (p: SweepProposal) => {
-  proposals.value = proposals.value?.filter((x) => x.task_id !== p.task_id) ?? null
-}
-
-// A proposal stays in the list if the update fails, so it can be retried.
-async function accept(p: SweepProposal) {
-  error.value = null
-  try {
-    emit('updated', await tasksApi.update(p.task_id, { due_date: p.new_due_date }))
-    drop(p)
-  } catch (e) {
-    error.value = errorMessage(e)
-  }
-}
 </script>
 
 <template>
   <div class="agent">
     <div class="agent__buttons">
       <button :disabled="busy !== null" @click="planDay">{{ busy === 'plan' ? 'Planning…' : 'Plan my day' }}</button>
-      <button :disabled="busy !== null" @click="sweep">{{ busy === 'sweep' ? 'Checking…' : 'Overdue sweep' }}</button>
     </div>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
 
@@ -61,23 +39,13 @@ async function accept(p: SweepProposal) {
       <p v-if="!plan.items.length">Nothing to plan.</p>
       <ol v-else>
         <li v-for="item in plan.items" :key="item.task_id">
-          {{ item.title }}<small v-if="item.reason"> — {{ item.reason }}</small>
+          {{ item.title }}
+          <strong v-if="item.estimate_minutes" class="estimate">~{{ duration(item.estimate_minutes) }}</strong>
+          <small v-if="item.reason"> — {{ item.reason }}</small>
         </li>
       </ol>
+      <p v-if="totalMinutes" class="total">Estimated total: {{ duration(totalMinutes) }}</p>
       <button @click="plan = null">Dismiss</button>
-    </section>
-
-    <section v-if="proposals" aria-label="Overdue sweep">
-      <h3>Proposed new dates</h3>
-      <p v-if="!proposals.length">No overdue tasks to reschedule.</p>
-      <ul v-else>
-        <li v-for="p in proposals" :key="p.task_id">
-          {{ p.title }}: {{ p.current_due_date }} → {{ p.new_due_date }}<small> — {{ p.reason }}</small>
-          <button :aria-label="`Accept ${p.title}`" @click="accept(p)">Accept</button>
-          <button :aria-label="`Reject ${p.title}`" @click="drop(p)">Reject</button>
-        </li>
-      </ul>
-      <button @click="proposals = null">Dismiss</button>
     </section>
   </div>
 </template>
@@ -85,14 +53,35 @@ async function accept(p: SweepProposal) {
 <style scoped>
 .agent__buttons {
   display: flex;
-  gap: 0.5rem;
-  margin: 0.5rem 0;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
 }
-.error {
-  color: #c33;
+.agent__buttons button {
+  flex: 1;
 }
-ul {
-  padding-left: 0;
-  list-style: none;
+section {
+  margin-bottom: var(--space-3);
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--accent-soft);
+}
+section h3 {
+  font-size: var(--text-base);
+}
+ol {
+  padding-left: var(--space-5);
+}
+li {
+  margin-bottom: var(--space-2);
+}
+.estimate {
+  margin-left: var(--space-2);
+  font-size: var(--text-sm);
+}
+.total {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
 }
 </style>

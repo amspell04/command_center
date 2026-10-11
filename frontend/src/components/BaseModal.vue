@@ -17,7 +17,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
       <div class="modal" role="dialog" aria-modal="true" :aria-label="title">
         <header>
           <h2>{{ title }}</h2>
-          <button type="button" aria-label="Close" @click="emit('close')">×</button>
+          <button type="button" class="btn--ghost close" aria-label="Close" @click="emit('close')">×</button>
         </header>
         <slot />
       </div>
@@ -29,17 +29,19 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
 .backdrop {
   position: fixed;
   inset: 0;
-  background: #0006;
+  background: rgb(31 29 41 / 50%);
+  backdrop-filter: blur(2px);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 100;
 }
 .modal {
-  background: Canvas;
-  color: CanvasText;
-  border-radius: 8px;
-  padding: 1rem 1.25rem;
+  background: var(--surface-color);
+  color: var(--text-color);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: var(--space-5);
   width: min(480px, 92vw);
   max-height: 90vh;
   overflow: auto;
@@ -48,9 +50,16 @@ header {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  margin-bottom: var(--space-4);
 }
 h2 {
   margin: 0;
-  font-size: 1.1rem;
+  font-size: var(--text-lg);
+}
+.close {
+  font-size: var(--text-xl);
+  line-height: 1;
+  width: 32px;
+  padding: 0;
 }
 </style>

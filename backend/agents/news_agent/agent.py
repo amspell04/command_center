@@ -1,4 +1,5 @@
 from langchain_core.messages import HumanMessage, SystemMessage
+from langsmith import traceable
 
 from backend.agents.llm import get_llm
 from backend.crud.schemas.news import NewsCreate
@@ -9,7 +10,7 @@ MAX_INPUT_CHARS = 8000
 SYSTEM_PROMPT = """You write a short daily news briefing from the articles provided.
 Use only the provided text. Return a title, a markdown summary, and 3 quiz questions with answers."""
 
-
+@traceable(run_type="llm")
 async def summarize_news(articles: str, sources: list[str]) -> NewsCreate:
     """Summarization only: no tools, no DB access. The caller (daily job) stores the result."""
     llm = get_llm("news_agent").with_structured_output(NewsCreate)

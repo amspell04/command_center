@@ -11,7 +11,7 @@ const emit = defineEmits<{ close: []; confirm: [] }>()
     <p v-if="error" class="error" role="alert">{{ error }}</p>
     <div class="actions">
       <button type="button" @click="emit('close')">Cancel</button>
-      <button type="button" @click="emit('confirm')">{{ confirmLabel ?? 'Delete' }}</button>
+      <button type="button" class="btn--primary btn--danger-solid" @click="emit('confirm')">{{ confirmLabel ?? 'Delete' }}</button>
     </div>
   </BaseModal>
 </template>
@@ -19,10 +19,16 @@ const emit = defineEmits<{ close: []; confirm: [] }>()
 <style scoped>
 .actions {
   display: flex;
-  gap: 0.5rem;
+  gap: var(--space-2);
   justify-content: flex-end;
 }
-.error {
-  color: #c33;
+.btn--danger-solid,
+.btn--danger-solid:hover:not(:disabled) {
+  background: var(--danger-color);
+  border-color: var(--danger-color);
+  color: #fff;
+}
+.btn--danger-solid:hover:not(:disabled) {
+  filter: brightness(0.9);
 }
 </style>

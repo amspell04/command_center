@@ -2,7 +2,6 @@ from langchain_ollama import ChatOllama
 
 from backend.config import settings
 
-
 def get_llm(agent: str) -> ChatOllama:
     return ChatOllama(
         model=settings.ollama_model,

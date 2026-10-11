@@ -10,8 +10,10 @@ Vue 3 + Vite + TypeScript in `frontend/`.
 ## Panels and modals
 - `BaseModal.vue`: shared dialog (teleported to body, closes on Escape or backdrop click). `ConfirmModal.vue` wraps it for destructive confirmations.
 - `TasksPanel.vue`: groups tasks into Today (due today or overdue), Upcoming and Completed. "New task" opens `TaskModal.vue` in create mode. Clicking a task title opens the same modal in edit mode (save, mark complete/incomplete, delete). The row checkbox completes quickly and the row Delete button deletes immediately with no confirmation.
+- `TodayPanel.vue`: the home page's "Today" section. Hosts `TaskAgentActions.vue` (the "Plan my day" button; each planned task shows an estimated duration plus a total) and the latest news briefing's headline, which links to `/news/:id`. If no briefing exists yet today it shows the most recent one and a "Generate briefing" button.
+- `NewsView.vue` (`/news/:id`): the full briefing (summary, quiz, sources) with Print.
 - `NotesPanel.vue`: "New note" opens `NoteCreateModal.vue` (title only), then navigates to the new note's page. Each note links to `/notes/:id`. Delete asks for confirmation via `ConfirmModal`.
-- `pages/NoteView.vue` (`/notes/:id`): the note's sub page. Editable title and a list of markdown-style text blocks (add, remove), explicit Save with unsaved-change tracking, and delete with confirmation. The API has no single-note endpoint, so the page finds the note in `GET /notes`.
+- `pages/NoteView.vue` (`/notes/:id`): the note's sub page. Editable title and one markdown document: a textarea while editing, rendered (marked + DOMPurify sanitized) after clicking Done, with an Edit button to return. Empty notes open in edit mode. Explicit Save with unsaved-change tracking, and delete with confirmation. The API has no single-note endpoint, so the page finds the note in `GET /notes`.
 - All views show loading and error states and keep user input if a request fails.
 
 ## Running

@@ -14,14 +14,10 @@ export interface Task {
 
 export type NewTask = Omit<Task, 'id' | 'completed' | 'date_created'>
 
-export interface NoteBlock {
-  content: string
-}
-
 export interface Note {
   id: string
   title: string
-  content_blocks: NoteBlock[]
+  content: string
   date_created: string
 }
 
@@ -48,28 +44,10 @@ export interface PlannedTask {
   title: string
   due_date: string
   reason: string
+  estimate_minutes: number | null
 }
 
 export interface DayPlan {
   date: string
   items: PlannedTask[]
-}
-
-export interface SweepProposal {
-  task_id: string
-  title: string
-  current_due_date: string
-  new_due_date: string
-  reason: string
-}
-
-export interface CritiquePoint {
-  point: string
-  quote: string
-}
-
-export interface NoteCritique {
-  gaps: CritiquePoint[]
-  unclear_claims: CritiquePoint[]
-  questions: string[]
 }

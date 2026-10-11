@@ -48,22 +48,24 @@ onMounted(load)
 
 <template>
   <section class="panel">
-    <div class="head">
+    <div class="panel__header">
       <h2>Notes</h2>
-      <button @click="creating = true">New note</button>
+      <button class="btn--primary" @click="creating = true">New note</button>
     </div>
 
-    <p v-if="loading">Loading…</p>
+    <div class="panel__body">
+    <p v-if="loading" class="muted">Loading…</p>
     <p v-if="error" class="error" role="alert">{{ error }} <button @click="load">Retry</button></p>
-    <p v-else-if="!notes.length && !loading">No notes yet.</p>
+    <p v-else-if="!notes.length && !loading" class="muted">No notes yet.</p>
 
     <ul>
       <li v-for="note in notes" :key="note.id" class="row">
         <RouterLink class="title" :to="`/notes/${note.id}`">{{ note.title }}</RouterLink>
         <small>{{ note.date_created }}</small>
-        <button :aria-label="`Delete ${note.title}`" @click="deleteError = null; pendingDelete = note">Delete</button>
+        <button class="btn--ghost btn--danger btn--sm" :aria-label="`Delete ${note.title}`" @click="deleteError = null; pendingDelete = note">Delete</button>
       </li>
     </ul>
+    </div>
 
     <NoteCreateModal v-if="creating" @close="creating = false" @created="onCreated" />
     <ConfirmModal
@@ -78,31 +80,44 @@ onMounted(load)
 </template>
 
 <style scoped>
-.panel {
-  border: 1px solid #8884;
-  border-radius: 8px;
-  padding: 1rem;
-}
-.head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+.panel__body {
+  min-height: 160px;
 }
 .row {
   display: flex;
-  align-items: center;
-  gap: 0.5rem;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-height: 120px;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--card-color);
+  transition:
+    border-color var(--transition),
+    box-shadow var(--transition);
+}
+.row:hover {
+  border-color: #cfc7de;
+  box-shadow: var(--shadow-sm);
 }
 .title {
-  flex: 1;
   font-weight: 600;
-  color: inherit;
+  color: var(--text-color);
   text-decoration: none;
+  overflow-wrap: anywhere;
 }
-.error {
-  color: #c33;
+.title:hover {
+  color: var(--accent-color);
+}
+.row button {
+  align-self: flex-end;
 }
 ul {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: var(--space-4);
+  margin: 0;
   padding-left: 0;
   list-style: none;
 }

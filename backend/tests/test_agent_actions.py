@@ -7,8 +7,7 @@ import pytest
 
 from backend.agents import runner
 from backend.agents.actions import UnknownAction, get_action
-from backend.agents.notes_agent.agent import CritiquePoint, NoteCritique
-from backend.agents.task_agent.agent import DayPlan, OverdueSweep, PlanItem, RescheduleProposal
+from backend.agents.task_agent.agent import DayPlan, PlanItem
 from backend.config import settings
 from backend.crud import notes as notes_crud
 from backend.services.api import agent_routes
@@ -24,8 +23,8 @@ def task(client, title, due, **over):
     return r.json()
 
 
-def note(client, blocks=("alpha beta gamma",), title="n"):
-    return client.post("/notes", json={"title": title, "content_blocks": [{"content": b} for b in blocks]}).json()
+def note(client, content="alpha beta gamma", title="n"):
+    return client.post("/notes", json={"title": title, "content": content}).json()
 
 
 class FakeRun:
@@ -59,10 +58,10 @@ def test_unknown_agent_or_action_is_404(client):
 
 def test_bad_params_are_rejected_before_the_model_runs(client, monkeypatch):
     fake = FakeRun(monkeypatch)
-    assert post(client, "task", "overdue_sweep", {"bogus": 1}).status_code == 422
+    assert post(client, "task", "plan_day", {"bogus": 1}).status_code == 422
     assert post(client, "task", "plan_day", {"date": "not-a-date"}).status_code == 422
-    assert post(client, "notes", "critique_note", {}).status_code == 422
-    assert post(client, "notes", "critique_note", {"note_id": "nope"}).status_code == 422
+    assert post(client, "notes", "summarize_note", {}).status_code == 422
+    assert post(client, "notes", "summarize_note", {"note_id": "nope"}).status_code == 422
     assert fake.calls == []
 
 
@@ -86,61 +85,37 @@ def test_plan_day_keeps_only_real_due_tasks_and_never_drops_one(client, monkeypa
         monkeypatch,
         DayPlan(
             items=[
-                PlanItem(task_id=uuid.UUID(b["id"]), reason="first"),
-                PlanItem(task_id=uuid.uuid4(), reason="invented"),
-                PlanItem(task_id=uuid.UUID(b["id"]), reason="duplicate"),
+                PlanItem(task_id=uuid.UUID(b["id"]), reason="first", estimate_minutes=30),
+                PlanItem(task_id=uuid.uuid4(), reason="invented", estimate_minutes=10),
+                PlanItem(task_id=uuid.UUID(b["id"]), reason="duplicate", estimate_minutes=10),
             ]
         ),
     )
     items = post(client, "task", "plan_day").json()["items"]
-    assert [(i["task_id"], i["reason"]) for i in items] == [(b["id"], "first"), (a["id"], "")]
+    assert [(i["task_id"], i["reason"], i["estimate_minutes"]) for i in items] == [(b["id"], "first", 30), (a["id"], "", None)]
     assert items[0]["title"] == "today"
 
 
 def test_plan_day_for_a_later_date_includes_that_day(client, monkeypatch):
     t = task(client, "future", TOMORROW)
-    FakeRun(monkeypatch, DayPlan(items=[PlanItem(task_id=uuid.UUID(t["id"]), reason="r")]))
+    FakeRun(monkeypatch, DayPlan(items=[PlanItem(task_id=uuid.UUID(t["id"]), reason="r", estimate_minutes=15)]))
     r = post(client, "task", "plan_day", {"date": TOMORROW.isoformat()})
     assert [i["task_id"] for i in r.json()["items"]] == [t["id"]]
 
 
-# overdue_sweep
-
-def test_sweep_with_nothing_overdue_skips_the_model(client, monkeypatch):
-    fake = FakeRun(monkeypatch)
-    task(client, "today", TODAY)
-    assert post(client, "task", "overdue_sweep").json() == {"proposals": []}
-    assert fake.calls == []
+@pytest.mark.parametrize("minutes", [0, 4, 481, -5])
+def test_plan_item_rejects_out_of_range_estimates(minutes):
+    with pytest.raises(ValueError):
+        PlanItem(task_id=uuid.uuid4(), reason="r", estimate_minutes=minutes)
 
 
-def test_sweep_drops_invalid_proposals_and_changes_nothing(client, monkeypatch):
-    a = task(client, "a", YESTERDAY)
-    b = task(client, "b", YESTERDAY)
-    ok = RescheduleProposal(task_id=uuid.UUID(a["id"]), new_due_date=TOMORROW, reason="r")
-    FakeRun(
-        monkeypatch,
-        OverdueSweep(
-            proposals=[
-                ok,
-                ok,  # duplicate
-                RescheduleProposal(task_id=uuid.UUID(b["id"]), new_due_date=YESTERDAY, reason="still overdue"),
-                RescheduleProposal(task_id=uuid.uuid4(), new_due_date=TOMORROW, reason="invented"),
-            ]
-        ),
-    )
-    proposals = post(client, "task", "overdue_sweep").json()["proposals"]
-    assert len(proposals) == 1
-    assert proposals[0]["task_id"] == a["id"] and proposals[0]["current_due_date"] == YESTERDAY.isoformat()
-    assert proposals[0]["new_due_date"] == TOMORROW.isoformat()
-    assert {t["due_date"] for t in client.get("/tasks").json()} == {YESTERDAY.isoformat()}
+def test_plan_item_requires_an_estimate():
+    with pytest.raises(ValueError):
+        PlanItem(task_id=uuid.uuid4(), reason="r")
 
 
-def test_sweep_ignores_completed_tasks(client, monkeypatch):
-    done = task(client, "done", YESTERDAY)
-    client.patch(f"/tasks/{done['id']}/complete")
-    fake = FakeRun(monkeypatch)
-    assert post(client, "task", "overdue_sweep").json() == {"proposals": []}
-    assert fake.calls == []
+def test_plan_day_instructions_ask_for_estimates():
+    assert "minutes" in get_action("task", "plan_day").instructions
 
 
 # summarize_note
@@ -148,29 +123,28 @@ def test_sweep_ignores_completed_tasks(client, monkeypatch):
 def test_summarize_unknown_or_empty_note(client, monkeypatch):
     fake = FakeRun(monkeypatch)
     assert post(client, "notes", "summarize_note", {"note_id": str(uuid.uuid4())}).status_code == 404
-    empty = note(client, blocks=(), title="empty")
+    empty = note(client, content="", title="empty")
     assert post(client, "notes", "summarize_note", {"note_id": empty["id"]}).status_code == 400
-    blank = note(client, blocks=("  ",), title="blank")
+    blank = note(client, content="  ", title="blank")
     assert post(client, "notes", "summarize_note", {"note_id": blank["id"]}).status_code == 400
     assert fake.calls == []
 
 
-def append_block(note_id, content):
+def append_text(note_id, content):
     def write():
         with TestSession() as db:
             n = notes_crud.get_note(db, uuid.UUID(note_id))
-            notes_crud.update_note(db, n.id, content_blocks=[*n.content_blocks, {"content": content}])
+            notes_crud.update_note(db, n.id, content=f"{n.content}\n\n{content}")
 
     return write
 
 
-def test_summarize_returns_note_with_summary_block(client, monkeypatch):
+def test_summarize_returns_note_with_summary_appended(client, monkeypatch):
     n = note(client)
-    fake = FakeRun(monkeypatch, "done", side_effect=append_block(n["id"], "Summary: short"))
+    fake = FakeRun(monkeypatch, "done", side_effect=append_text(n["id"], "Summary: short"))
     r = post(client, "notes", "summarize_note", {"note_id": n["id"]})
     assert r.status_code == 200
-    assert r.json()["content_blocks"][-1] == {"content": "Summary: short"}
-    assert len(r.json()["content_blocks"]) == 2
+    assert r.json()["content"] == "alpha beta gamma\n\nSummary: short"
     assert n["id"] in fake.calls[0][1] and "alpha beta gamma" in fake.calls[0][1]
 
 
@@ -178,46 +152,8 @@ def test_summarize_fails_when_agent_saved_nothing_or_the_wrong_thing(client, mon
     n = note(client)
     FakeRun(monkeypatch, "I summarized it")
     assert post(client, "notes", "summarize_note", {"note_id": n["id"]}).status_code == 502
-    FakeRun(monkeypatch, "x", side_effect=append_block(n["id"], "not a summary"))
+    FakeRun(monkeypatch, "x", side_effect=append_text(n["id"], "not a summary"))
     assert post(client, "notes", "summarize_note", {"note_id": n["id"]}).status_code == 502
-
-
-# critique_note
-
-def test_critique_unknown_or_empty_note(client, monkeypatch):
-    fake = FakeRun(monkeypatch)
-    assert post(client, "notes", "critique_note", {"note_id": str(uuid.uuid4())}).status_code == 404
-    empty = note(client, blocks=())
-    assert post(client, "notes", "critique_note", {"note_id": empty["id"]}).status_code == 400
-    assert fake.calls == []
-
-
-def test_critique_drops_points_with_made_up_quotes(client, monkeypatch):
-    n = note(client, blocks=("Water boils at 100C.", "Salt  raises\nthe boiling point."))
-    FakeRun(
-        monkeypatch,
-        NoteCritique(
-            gaps=[
-                CritiquePoint(point="no pressure", quote="water boils at 100c."),
-                CritiquePoint(point="x", quote="never written"),
-            ],
-            unclear_claims=[CritiquePoint(point="vague", quote="Salt raises the boiling point.")],
-            questions=["Why?"],
-        ),
-    )
-    r = post(client, "notes", "critique_note", {"note_id": n["id"]})
-    assert r.status_code == 200
-    body = r.json()
-    assert [g["point"] for g in body["gaps"]] == ["no pressure"]
-    assert [c["point"] for c in body["unclear_claims"]] == ["vague"]
-    assert body["questions"] == ["Why?"]
-
-
-def test_critique_does_not_modify_the_note(client, monkeypatch):
-    n = note(client)
-    FakeRun(monkeypatch, NoteCritique(gaps=[], unclear_claims=[], questions=[]))
-    post(client, "notes", "critique_note", {"note_id": n["id"]})
-    assert client.get("/notes").json()[0]["content_blocks"] == n["content_blocks"]
 
 
 # failure mapping
@@ -259,8 +195,8 @@ def test_get_action_unknown_raises():
 def test_actions_carry_base_and_action_prompt_and_read_only_tools():
     plan = get_action("task", "plan_day")
     assert "manage the user's tasks" in plan.instructions and "plan the user's day" in plan.instructions
-    assert get_action("task", "overdue_sweep").tools == ("list_tasks",)  # proposals only: no update tool
-    assert get_action("notes", "critique_note").tools == ()
+    assert plan.tools == ("list_tasks",)  # read only: no update tool
+    assert get_action("notes", "summarize_note").tools == ("append_note_content",)
 
 
 class FakeAgent:

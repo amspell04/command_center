@@ -30,7 +30,7 @@ def _schema():
 def _clean():
     yield
     with engine.begin() as conn:
-        conn.execute(text("TRUNCATE tasks, notes, news"))
+        conn.execute(text("TRUNCATE tasks, notes, news, goals"))
 
 
 @pytest.fixture

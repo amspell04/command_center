@@ -1,3 +1,5 @@
+import uuid
+
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -10,6 +12,15 @@ def create_news(db: Session, data: NewsCreate) -> News:
     db.add(news)
     db.commit()
     return news
+
+
+def get_news(db: Session, news_id: uuid.UUID) -> News | None:
+    return db.get(News, news_id)
+
+
+def get_latest_news(db: Session) -> News | None:
+    stmt = select(News).order_by(News.date_created.desc(), News.title).limit(1)
+    return db.scalars(stmt).first()
 
 
 def list_todays_news(db: Session) -> list[News]:

@@ -3,12 +3,9 @@ import uuid
 from pydantic import BaseModel
 from datetime import date
 
-class NoteBlock(BaseModel):
-    content: str
-
 class Note(BaseModel):
     id: uuid.UUID
     title: str
-    content_blocks: list[NoteBlock]
+    content: str
     date_created: date
 

@@ -39,7 +39,7 @@ async def call(client, name, **args):
 
 async def test_exposes_no_delete_tools(client):
     names = {t.name for t in await client.list_tools()}
-    assert names == {"create_task", "list_tasks", "update_task", "complete_task", "create_note", "search_notes", "add_note_block"}
+    assert names == {"create_task", "list_tasks", "update_task", "complete_task", "create_note", "search_notes", "append_note_content"}
     assert not any("delete" in n for n in names)
 
 
@@ -99,13 +99,16 @@ async def test_task_non_uuid_id(client):
 
 async def test_note_create_search_append(client):
     note = await call(client, "create_note", title="Trip ideas", content="Lisbon")
-    assert note["content_blocks"] == [{"content": "Lisbon"}]
+    assert note["content"] == "Lisbon"
 
     found = await call(client, "search_notes", query="lisbon")
     assert [n["id"] for n in found] == [note["id"]]
 
-    appended = await call(client, "add_note_block", note_id=note["id"], content="Porto")
-    assert appended["content_blocks"] == [{"content": "Lisbon"}, {"content": "Porto"}]
+    appended = await call(client, "append_note_content", note_id=note["id"], content="Porto")
+    assert appended["content"] == "Lisbon\n\nPorto"
+
+    empty = await call(client, "create_note", title="Blank")
+    assert (await call(client, "append_note_content", note_id=empty["id"], content="First"))["content"] == "First"
 
 
 async def test_search_notes_no_query_lists_all(client):
@@ -126,17 +129,17 @@ async def test_note_empty_title_rejected(client):
         await call(client, "create_note", title="")
 
 
-async def test_add_block_empty_content_rejected(client):
+async def test_append_content_empty_content_rejected(client):
     note = await call(client, "create_note", title="a")
     with pytest.raises(ToolError, match="must not be empty"):
-        await call(client, "add_note_block", note_id=note["id"], content="  ")
+        await call(client, "append_note_content", note_id=note["id"], content="  ")
 
 
-async def test_add_block_unknown_note(client):
+async def test_append_content_unknown_note(client):
     with pytest.raises(ToolError, match="Note not found"):
-        await call(client, "add_note_block", note_id=str(uuid.uuid4()), content="x")
+        await call(client, "append_note_content", note_id=str(uuid.uuid4()), content="x")
 
 
-async def test_add_block_non_uuid_id(client):
+async def test_append_content_non_uuid_id(client):
     with pytest.raises(ToolError, match="must be a UUID"):
-        await call(client, "add_note_block", note_id="abc", content="x")
+        await call(client, "append_note_content", note_id="abc", content="x")

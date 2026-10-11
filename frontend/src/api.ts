@@ -1,4 +1,4 @@
-import type { DayPlan, NewNote, News, NewTask, Note, NoteCritique, SweepProposal, Task } from './types'
+import type { DayPlan, NewNote, News, NewTask, Note, Task } from './types'
 
 const BASE = '/api'
 
@@ -54,6 +54,8 @@ export const notesApi = {
 
 export const newsApi = {
   today: () => request<News[]>('/news/today'),
+  latest: () => request<News>('/news/latest'),
+  get: (id: string) => request<News>(`/news/${id}`),
   refresh: () => request<News>('/news/refresh', { method: 'POST' }),
 }
 
@@ -62,9 +64,7 @@ const action = <T>(agent: string, name: string, body: object = {}) =>
 
 export const agentsApi = {
   planDay: () => action<DayPlan>('task', 'plan_day'),
-  overdueSweep: () => action<{ proposals: SweepProposal[] }>('task', 'overdue_sweep'),
   summarizeNote: (noteId: string) => action<Note>('notes', 'summarize_note', { note_id: noteId }),
-  critiqueNote: (noteId: string) => action<NoteCritique>('notes', 'critique_note', { note_id: noteId }),
 }
 
 export function errorMessage(e: unknown): string {

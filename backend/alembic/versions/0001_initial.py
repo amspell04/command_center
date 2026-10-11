@@ -39,7 +39,7 @@ def upgrade() -> None:
         "notes",
         sa.Column("id", postgresql.UUID(as_uuid=True), server_default=sa.text("gen_random_uuid()"), nullable=False),
         sa.Column("title", sa.String(length=255), nullable=False),
-        sa.Column("content_blocks", postgresql.JSONB(), server_default=sa.text("'[]'::jsonb"), nullable=False),
+        sa.Column("content", sa.Text(), server_default=sa.text("''"), nullable=False),
         sa.Column("date_created", sa.Date(), server_default=sa.text("CURRENT_DATE"), nullable=False),
         sa.PrimaryKeyConstraint("id", name="pk_notes"),
     )

@@ -92,9 +92,8 @@ def complete_task(task_id: str) -> dict:
 
 @mcp.tool
 def create_note(title: str, content: str = "") -> dict:
-    """Create a note with one block of content."""
-    blocks = [{"content": content}] if content else []
-    data = NoteCreate(title=title, content_blocks=blocks)
+    """Create a note with markdown content."""
+    data = NoteCreate(title=title, content=content)
     with get_session() as db:
         return _dump(Note, notes_crud.create_note(db, data))
 
@@ -107,15 +106,15 @@ def search_notes(query: str | None = None) -> list[dict]:
 
 
 @mcp.tool
-def add_note_block(note_id: str, content: str) -> dict:
-    """Append a block of content to an existing note. Existing content is kept."""
+def append_note_content(note_id: str, content: str) -> dict:
+    """Append markdown to the end of an existing note as a new paragraph. Existing content is kept."""
     if not content.strip():
         raise ToolError("content must not be empty")
     nid = _uuid(note_id, "note_id")
     with get_session() as db:
         note = _require(db.get(NoteRow, nid), "Note")
-        blocks = [*note.content_blocks, {"content": content}]
-        return _dump(Note, _require(notes_crud.update_note(db, nid, content_blocks=blocks), "Note"))
+        joined = f"{note.content.rstrip()}\n\n{content}" if note.content.strip() else content
+        return _dump(Note, _require(notes_crud.update_note(db, nid, content=joined), "Note"))
 
 
 def main() -> None:
