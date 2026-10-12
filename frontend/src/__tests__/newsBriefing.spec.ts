@@ -88,6 +88,16 @@ describe('NewsBriefing', () => {
     expect((await mountPanel()).find('[data-testid="briefing-quiz"]').exists()).toBe(false)
   })
 
+  it('places the sources in the same column as the quiz', async () => {
+    vi.mocked(newsApi.today).mockResolvedValue([
+      news({ quiz_section: [{ question: 'Q1?', answer: 'A1' }] }),
+    ] as never)
+    const side = (await mountPanel()).get('.side')
+    expect(side.find('[data-testid="briefing-quiz"]').exists()).toBe(true)
+    expect(side.find('[data-testid="briefing-links"]').exists()).toBe(true)
+    expect(side.html().indexOf('briefing-quiz')).toBeLessThan(side.html().indexOf('briefing-links'))
+  })
+
   it('links the covered articles in a new tab', async () => {
     vi.mocked(newsApi.today).mockResolvedValue([news()] as never)
     const a = (await mountPanel()).get('[data-testid="briefing-links"] a')

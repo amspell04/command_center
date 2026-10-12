@@ -72,26 +72,28 @@ onMounted(load)
       <p class="summary" data-testid="briefing-summary">{{ briefing.summary }}</p>
       <div class="briefing__cols">
         <p class="body" data-testid="briefing-body">{{ briefing.body }}</p>
-        <section v-if="briefing.quiz_section.length" class="quiz" data-testid="briefing-quiz">
-          <h4>Quiz</h4>
-          <ol>
-            <li v-for="(q, i) in briefing.quiz_section" :key="i">
-              <details>
-                <summary>{{ q.question }}</summary>
-                <p>{{ q.answer }}</p>
-              </details>
-            </li>
-          </ol>
-        </section>
+        <div class="side">
+          <section v-if="briefing.quiz_section.length" class="quiz" data-testid="briefing-quiz">
+            <h4>Quiz</h4>
+            <ol>
+              <li v-for="(q, i) in briefing.quiz_section" :key="i">
+                <details>
+                  <summary>{{ q.question }}</summary>
+                  <p>{{ q.answer }}</p>
+                </details>
+              </li>
+            </ol>
+          </section>
+          <section v-if="briefing.articles.length" class="sources" data-testid="briefing-links">
+            <h4>Sources</h4>
+            <ul>
+              <li v-for="a in briefing.articles" :key="a.url">
+                <a v-if="/^https?:\/\//.test(a.url)" :href="a.url" target="_blank" rel="noopener noreferrer">{{ a.title }}</a>
+              </li>
+            </ul>
+          </section>
+        </div>
       </div>
-      <section v-if="briefing.articles.length" class="sources" data-testid="briefing-links">
-        <h4>Sources</h4>
-        <ul>
-          <li v-for="a in briefing.articles" :key="a.url">
-            <a v-if="/^https?:\/\//.test(a.url)" :href="a.url" target="_blank" rel="noopener noreferrer">{{ a.title }}</a>
-          </li>
-        </ul>
-      </section>
     </article>
     <p v-else-if="!loading && !error" class="muted">No briefing yet.</p>
   </section>
@@ -150,8 +152,10 @@ h4 {
   padding: 0 var(--space-3) var(--space-2);
   color: var(--text-muted);
 }
-.sources {
-  margin-top: var(--space-4);
+.side {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
 }
 .sources li {
   padding: var(--space-1) 0;
