@@ -5,7 +5,12 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
-from backend.config import settings
+from backend.config import configure_tracing, settings
+
+# Never send test runs to LangSmith, whatever .env says. Tests that need tracing on patch `settings` themselves.
+settings.langsmith_tracing = False
+configure_tracing()
+
 from backend.db import models  # noqa: F401  (registers tables)
 from backend.db.base import Base
 from backend.db.session import get_db
