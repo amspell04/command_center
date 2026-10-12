@@ -9,7 +9,7 @@ vi.mock('../api', async (orig) => {
   return {
     ...actual,
     tasksApi: { list: vi.fn(), create: vi.fn(), update: vi.fn(), complete: vi.fn(), remove: vi.fn() },
-    agentsApi: { planDay: vi.fn(), summarizeNote: vi.fn() },
+    agentsApi: { planDay: vi.fn(), summarizeNote: vi.fn(), storedPlan: vi.fn() },
   }
 })
 import { agentsApi, ApiError, tasksApi } from '../api'
@@ -59,6 +59,7 @@ async function mountPanel(tasks: object[] = [task()]) {
 
 beforeEach(() => {
   vi.resetAllMocks()
+  vi.mocked(agentsApi.storedPlan).mockResolvedValue(null)
   useTasks().tasks.value = []
 })
 
@@ -139,14 +140,14 @@ describe('TodayPanel plan my day', () => {
     vi.mocked(agentsApi.planDay).mockResolvedValue(plan() as never)
     const w = await mountPanel([task()])
     await btn(w, 'Plan my day')!.trigger('click')
-    expect(agentsApi.planDay).toHaveBeenLastCalledWith(today)
+    expect(agentsApi.planDay).toHaveBeenLastCalledWith(today, false)
 
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(new Date(new Date().getFullYear() + 1, 0, 2, 9))
     document.dispatchEvent(new Event('visibilitychange'))
     await flushPromises()
-    await btn(w, 'Plan my day')!.trigger('click')
-    expect(agentsApi.planDay).toHaveBeenLastCalledWith(localToday())
+    await btn(w, 'Re-plan')!.trigger('click')
+    expect(agentsApi.planDay).toHaveBeenLastCalledWith(localToday(), true)
     expect(localToday()).not.toBe(today)
     vi.useRealTimers()
     w.unmount()
@@ -225,6 +226,34 @@ describe('TodayPanel plan my day', () => {
     expect(btn(w, 'Planning…')!.attributes('disabled')).toBeDefined()
     resolve(plan() as never)
     await flushPromises()
-    expect(btn(w, 'Plan my day')!.attributes('disabled')).toBeUndefined()
+    expect(btn(w, 'Re-plan')!.attributes('disabled')).toBeUndefined()
+  })
+
+  it("shows today's stored plan on open without running the agent", async () => {
+    vi.mocked(agentsApi.storedPlan).mockResolvedValue(
+      plan({ items: [planned('t1', 'Call dentist', 30, 'stored reason')], summary: 'Stored summary.' }) as never,
+    )
+    const w = await mountPanel([task()])
+    expect(w.text()).toContain('Stored summary.')
+    expect(w.text()).toContain('stored reason')
+    expect(agentsApi.planDay).not.toHaveBeenCalled()
+    expect(btn(w, 'Re-plan')).toBeDefined()
+  })
+
+  it('re-planning forces a new run, the first run does not', async () => {
+    vi.mocked(agentsApi.planDay).mockResolvedValue(plan() as never)
+    const w = await mountPanel([task()])
+    await btn(w, 'Plan my day')!.trigger('click')
+    expect(agentsApi.planDay).toHaveBeenLastCalledWith(today, false)
+    await flushPromises()
+    await btn(w, 'Re-plan')!.trigger('click')
+    expect(agentsApi.planDay).toHaveBeenLastCalledWith(today, true)
+  })
+
+  it('ignores a failed stored-plan lookup', async () => {
+    vi.mocked(agentsApi.storedPlan).mockRejectedValue(new ApiError(500, 'boom'))
+    const w = await mountPanel([task()])
+    expect(w.find('[role="alert"]').exists()).toBe(false)
+    expect(btn(w, 'Plan my day')).toBeDefined()
   })
 })

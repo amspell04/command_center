@@ -141,7 +141,6 @@ export const studyBuddyApi = {
 export const newsApi = {
   today: () => request<News[]>('/news/today'),
   latest: () => request<News>('/news/latest'),
-  get: (id: string) => request<News>(`/news/${id}`),
   refresh: (replace = false) =>
     request<News>(`/news/refresh${replace ? '?replace=true' : ''}`, { method: 'POST' }),
 }
@@ -176,8 +175,12 @@ const action = <T>(agent: string, name: string, body: object = {}) =>
   request<T>(`/agents/${agent}/actions/${name}`, json('POST', body))
 
 export const agentsApi = {
-  planDay: (date: string) => action<DayPlan>('task', 'plan_day', { date }),
-  balanceWeek: (date: string) => action<WeekBalance>('training', 'balance_week', { date }),
+  planDay: (date: string, force = false) => action<DayPlan>('task', 'plan_day', force ? { date, force } : { date }),
+  balanceWeek: (date: string, force = false) =>
+    action<WeekBalance>('training', 'balance_week', force ? { date, force } : { date }),
+  // Last stored output, or null; never runs the model.
+  storedPlan: (date: string) => request<DayPlan | null>(`/agents/results/plan_day?date=${date}`),
+  storedBalance: (date: string) => request<WeekBalance | null>(`/agents/results/balance_week?date=${date}`),
   summarizeNote: (noteId: string, force = false) =>
     action<Note>('notes', 'summarize_note', { note_id: noteId, force }),
 }

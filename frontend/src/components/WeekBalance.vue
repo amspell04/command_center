@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { agentsApi, errorMessage } from '../api'
 import type { BalanceStatus, WeekBalance } from '../types'
 import { localToday, longDate } from '../utils/dates'
@@ -16,13 +16,18 @@ async function run() {
   running.value = true
   error.value = null
   try {
-    result.value = await agentsApi.balanceWeek(localToday())
+    result.value = await agentsApi.balanceWeek(localToday(), result.value !== null)
   } catch (e) {
     error.value = errorMessage(e)
   } finally {
     running.value = false
   }
 }
+
+onMounted(() => {
+  // This week's earlier run, if any.
+  agentsApi.storedBalance(localToday()).then((r) => (result.value ??= r)).catch(() => {})
+})
 </script>
 
 <template>
@@ -31,10 +36,10 @@ async function run() {
       <h2>Week balance</h2>
       <button v-if="result" type="button" class="btn--ghost btn--sm" @click="(result = null), (error = null)">Dismiss</button>
       <button type="button" class="btn--primary btn--sm" :disabled="running" @click="run">
-        {{ running ? 'Balancing…' : 'Balance my week' }}
+        {{ running ? 'Balancing…' : result ? 'Re-balance' : 'Balance my week' }}
       </button>
     </header>
-    <p v-if="!result && !error" class="balance__hint">Checks this week’s tasks against your gym days and suggests what to move, plus food, water and caffeine for each gym day.</p>
+    <p v-if="!result && !error" class="balance__hint">Checks this week’s tasks against your gym days and recommends food, sleep, water and caffeine for each gym day.</p>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
 
     <template v-if="result">

@@ -30,7 +30,7 @@ def _schema():
 def _clean():
     yield
     with engine.begin() as conn:
-        conn.execute(text("TRUNCATE tasks, notes, news, goals, weak_points, training_maxes, programs, program_sets, workout_sessions, lift_sets"))
+        conn.execute(text("TRUNCATE tasks, notes, news, goals, weak_points, training_maxes, programs, program_sets, workout_sessions, lift_sets, agent_results"))
 
 
 @pytest.fixture

@@ -99,6 +99,21 @@ class News(Base):
     date_created: Mapped[date] = _date_created()
 
 
+class AgentResult(Base):
+    """Latest output of a single-shot agent action, one row per action and period (a day or a week start).
+    The hash is of the prompt and message the output was written from, so changed inputs regenerate it."""
+
+    __tablename__ = "agent_results"
+    __table_args__ = (UniqueConstraint("kind", "period_start"),)
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    kind: Mapped[str] = mapped_column(String(32))
+    period_start: Mapped[date] = mapped_column(Date)
+    payload: Mapped[dict] = mapped_column(JSONB)
+    source_hash: Mapped[str] = mapped_column(String(64))
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class Lift(str, enum.Enum):
     squat = "SQUAT"
     bench = "BENCH"

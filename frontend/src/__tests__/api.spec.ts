@@ -148,11 +148,10 @@ describe('agent and news endpoints', () => {
     expect(f.mock.calls[0][0]).toBe('/api/news/refresh?replace=true')
   })
 
-  it('GETs the latest briefing and a briefing by id', async () => {
+  it('GETs the latest briefing', async () => {
     const f = stub()
     await newsApi.latest()
-    await newsApi.get('b1')
-    expect(f.mock.calls.map(([url]) => url)).toEqual(['/api/news/latest', '/api/news/b1'])
+    expect(f.mock.calls.map(([url]) => url)).toEqual(['/api/news/latest'])
   })
 
   it('surfaces agent error details', async () => {
@@ -188,6 +187,20 @@ describe('agent and news endpoints', () => {
       ['/api/training/sessions?start=2026-10-12&end=2026-10-12', undefined],
       ['/api/training/sessions', 'PUT'],
       ['/api/training/sessions/s1', 'DELETE'],
+    ])
+  })
+
+  it('sends force only when set, and GETs stored results without running the model', async () => {
+    const f = stub()
+    await agentsApi.planDay('2026-10-14', true)
+    await agentsApi.balanceWeek('2026-10-14', true)
+    await agentsApi.storedPlan('2026-10-14')
+    await agentsApi.storedBalance('2026-10-14')
+    expect(JSON.parse(f.mock.calls[0][1].body)).toEqual({ date: '2026-10-14', force: true })
+    expect(JSON.parse(f.mock.calls[1][1].body)).toEqual({ date: '2026-10-14', force: true })
+    expect(f.mock.calls.slice(2).map(([url, init]) => [url, init?.method])).toEqual([
+      ['/api/agents/results/plan_day?date=2026-10-14', undefined],
+      ['/api/agents/results/balance_week?date=2026-10-14', undefined],
     ])
   })
 

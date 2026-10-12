@@ -67,7 +67,7 @@ async function planDay() {
   planning.value = true
   error.value = null
   try {
-    plan.value = await agentsApi.planDay(todayStr.value)
+    plan.value = await agentsApi.planDay(todayStr.value, plan.value !== null)
   } catch (e) {
     error.value = errorMessage(e)
   }
@@ -88,6 +88,7 @@ const gymToday = computed(() => gym.days.value.find((g) => g.date === todayStr.v
 onMounted(() => {
   document.addEventListener('visibilitychange', refreshToday)
   gym.load()
+  agentsApi.storedPlan(todayStr.value).then((p) => (plan.value ??= p)).catch(() => {}) // an earlier run today, if any
   load().catch((e) => (error.value = errorMessage(e)))
 })
 onBeforeUnmount(() => document.removeEventListener('visibilitychange', refreshToday))
@@ -100,7 +101,7 @@ onBeforeUnmount(() => document.removeEventListener('visibilitychange', refreshTo
       <div class="panel__actions">
         <button v-if="plan" class="btn--ghost btn--sm" @click="plan = null">Dismiss</button>
         <button class="btn--primary btn--sm" :disabled="planning" @click="planDay">
-          {{ planning ? 'Planning…' : 'Plan my day' }}
+          {{ planning ? 'Planning…' : plan ? 'Re-plan' : 'Plan my day' }}
         </button>
       </div>
     </header>

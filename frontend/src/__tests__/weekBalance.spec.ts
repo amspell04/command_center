@@ -4,7 +4,7 @@ import WeekBalance from '../components/WeekBalance.vue'
 
 vi.mock('../api', async (orig) => {
   const actual = await orig<typeof import('../api')>()
-  return { ...actual, agentsApi: { planDay: vi.fn(), summarizeNote: vi.fn(), balanceWeek: vi.fn() } }
+  return { ...actual, agentsApi: { planDay: vi.fn(), summarizeNote: vi.fn(), balanceWeek: vi.fn(), storedBalance: vi.fn() } }
 })
 import { agentsApi, ApiError } from '../api'
 
@@ -34,13 +34,16 @@ const result = (o = {}) => ({
   program: 'Meet prep, week 1 of 10',
   status: 'TIGHT',
   summary: 'Monday is heavy.',
-  suggestions: [{ date: '2026-10-15', action: 'Move the report to Thursday' }],
+  suggestions: [{ date: '2026-10-15', action: 'Eat a carb-heavy meal before lifting and sleep 8 hours' }],
   ...o,
 })
 
 const button = (w: ReturnType<typeof mount>, text: string) => w.findAll('button').find((b) => b.text() === text)!
 
-beforeEach(() => vi.resetAllMocks())
+beforeEach(() => {
+  vi.resetAllMocks()
+  vi.mocked(agentsApi.storedBalance).mockResolvedValue(null)
+})
 
 describe('WeekBalance', () => {
   it('asks nothing until you press the button', () => {
@@ -56,7 +59,7 @@ describe('WeekBalance', () => {
     await flushPromises()
     expect(w.get('[data-testid="status"]').text()).toBe('Tight')
     expect(w.text()).toContain('Monday is heavy.')
-    expect(w.get('[aria-label="Suggestions"]').text()).toContain('Move the report to Thursday')
+    expect(w.get('[aria-label="Suggestions"]').text()).toContain('Eat a carb-heavy meal before lifting and sleep 8 hours')
     expect(w.get('[data-testid="context"]').text()).toBe('Meet prep, week 1 of 10 · State meet in 124 days')
     const rows = w.findAll('[data-testid="day"]')
     expect(rows).toHaveLength(7)
@@ -106,12 +109,50 @@ describe('WeekBalance', () => {
     const w = mount(WeekBalance)
     await button(w, 'Balance my week').trigger('click')
     await flushPromises()
-    await button(w, 'Balance my week').trigger('click')
+    await button(w, 'Re-balance').trigger('click')
     await flushPromises()
     expect(w.get('[role="alert"]').text()).toBe('The agent timed out')
     expect(w.get('[data-testid="status"]').exists()).toBe(true)
     await button(w, 'Dismiss').trigger('click')
     expect(w.find('[data-testid="status"]').exists()).toBe(false)
     expect(w.text()).toContain('Checks this week')
+  })
+
+  it('shows the stored result on open without running the agent', async () => {
+    vi.mocked(agentsApi.storedBalance).mockResolvedValue(result() as never)
+    const w = mount(WeekBalance)
+    await flushPromises()
+    expect(w.get('[data-testid="status"]').text()).toBe('Tight')
+    expect(agentsApi.balanceWeek).not.toHaveBeenCalled()
+    expect(button(w, 'Re-balance')).toBeDefined()
+  })
+
+  it('re-balancing forces a new run', async () => {
+    vi.mocked(agentsApi.storedBalance).mockResolvedValue(result() as never)
+    vi.mocked(agentsApi.balanceWeek).mockResolvedValue(result({ summary: 'Fresh.' }) as never)
+    const w = mount(WeekBalance)
+    await flushPromises()
+    await button(w, 'Re-balance').trigger('click')
+    await flushPromises()
+    expect(agentsApi.balanceWeek).toHaveBeenCalledWith(expect.any(String), true)
+    expect(w.text()).toContain('Fresh.')
+  })
+
+  it('a first run does not force', async () => {
+    vi.mocked(agentsApi.balanceWeek).mockResolvedValue(result() as never)
+    const w = mount(WeekBalance)
+    await button(w, 'Balance my week').trigger('click')
+    expect(agentsApi.balanceWeek).toHaveBeenCalledWith(expect.any(String), false)
+  })
+
+  it('shows the empty state when nothing is stored, and ignores a failed lookup', async () => {
+    const w = mount(WeekBalance)
+    await flushPromises()
+    expect(w.text()).toContain('Checks this week')
+    vi.mocked(agentsApi.storedBalance).mockRejectedValue(new ApiError(500, 'boom'))
+    const w2 = mount(WeekBalance)
+    await flushPromises()
+    expect(w2.find('[role="alert"]').exists()).toBe(false)
+    expect(w2.text()).toContain('Checks this week')
   })
 })

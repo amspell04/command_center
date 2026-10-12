@@ -7,7 +7,7 @@ vi.mock('../api', async (orig) => {
   const actual = await orig<typeof import('../api')>()
   return {
     ...actual,
-    newsApi: { today: vi.fn(), latest: vi.fn(), get: vi.fn(), refresh: vi.fn() },
+    newsApi: { today: vi.fn(), latest: vi.fn(), refresh: vi.fn() },
   }
 })
 import { ApiError, newsApi } from '../api'
@@ -31,7 +31,6 @@ async function mountPanel() {
     history: createMemoryHistory(),
     routes: [
       { path: '/', component: { template: '<div />' } },
-      { path: '/news/:id', component: { template: '<div />' } },
     ],
   })
   router.push('/')
@@ -44,12 +43,11 @@ async function mountPanel() {
 beforeEach(() => vi.resetAllMocks())
 
 describe('NewsBriefing', () => {
-  it("links today's headline to its briefing page and does not offer to generate", async () => {
+  it("shows today's briefing inline and does not offer to generate", async () => {
     vi.mocked(newsApi.today).mockResolvedValue([news()] as never)
     const w = await mountPanel()
-    const link = w.get('a.headline')
-    expect(link.text()).toBe('Morning briefing')
-    expect(link.attributes('href')).toBe('/news/b1')
+    expect(w.get('h3.headline').text()).toBe('Morning briefing')
+    expect(w.find('a.headline').exists()).toBe(false)
     expect(btn(w, 'Generate briefing')).toBeUndefined()
     expect(newsApi.latest).not.toHaveBeenCalled()
   })
@@ -61,7 +59,6 @@ describe('NewsBriefing', () => {
     await btn(w, 'Regenerate')!.trigger('click')
     await flushPromises()
     expect(newsApi.refresh).toHaveBeenCalledWith(true)
-    expect(w.get('a.headline').attributes('href')).toBe('/news/b2')
   })
 
   it('keeps the existing briefing and shows the error when regenerating fails', async () => {
@@ -71,19 +68,24 @@ describe('NewsBriefing', () => {
     await btn(w, 'Regenerate')!.trigger('click')
     await flushPromises()
     expect(w.get('[role="alert"]').text()).toContain('No recent articles')
-    expect(w.get('a.headline').text()).toBe('Morning briefing')
+    expect(w.get('h3.headline').text()).toBe('Morning briefing')
     expect(btn(w, 'Regenerate')!.attributes('disabled')).toBeUndefined()
   })
 
-  it('shows the summary under the title on the home page', async () => {
+  it('shows summary, body and quiz answers inline on the home page', async () => {
     vi.mocked(newsApi.today).mockResolvedValue([
-      news({ quiz_section: [{ question: 'Q1?', answer: 'A1' }], sources: ['https://x.test'] }),
+      news({ quiz_section: [{ question: 'Q1?', answer: 'A1' }] }),
     ] as never)
     const w = await mountPanel()
     expect(w.get('[data-testid="briefing-summary"]').text()).toBe('Things happened.')
-    expect(w.text()).not.toContain('Long details of the events.')
-    expect(w.text()).not.toContain('Q1?')
-    expect(w.text()).not.toContain('https://x.test')
+    expect(w.get('[data-testid="briefing-body"]').text()).toBe('Long details of the events.')
+    expect(w.get('[data-testid="briefing-quiz"]').text()).toContain('Q1?')
+    expect(w.get('[data-testid="briefing-quiz"]').text()).toContain('A1')
+  })
+
+  it('omits the quiz section when there are no questions', async () => {
+    vi.mocked(newsApi.today).mockResolvedValue([news({ quiz_section: [] })] as never)
+    expect((await mountPanel()).find('[data-testid="briefing-quiz"]').exists()).toBe(false)
   })
 
   it('links the covered articles in a new tab', async () => {
@@ -113,7 +115,6 @@ describe('NewsBriefing', () => {
     vi.mocked(newsApi.today).mockResolvedValue([])
     vi.mocked(newsApi.latest).mockResolvedValue(news({ id: 'old', title: 'Old news' }) as never)
     const w = await mountPanel()
-    expect(w.get('a.headline').attributes('href')).toBe('/news/old')
     expect(w.text()).toContain('From 2026-01-02')
     expect(btn(w, 'Generate briefing')!.attributes('disabled')).toBeUndefined()
   })
@@ -128,7 +129,7 @@ describe('NewsBriefing', () => {
     await btn(w, 'Generate briefing')!.trigger('click')
     await flushPromises()
     expect(newsApi.refresh).toHaveBeenCalledTimes(1)
-    expect(w.get('a.headline').text()).toBe('Morning briefing')
+    expect(w.get('h3.headline').text()).toBe('Morning briefing')
     expect(btn(w, 'Generate briefing')).toBeUndefined()
   })
 
@@ -144,7 +145,7 @@ describe('NewsBriefing', () => {
     expect(newsApi.refresh).toHaveBeenCalledTimes(1)
     resolve(news() as never)
     await flushPromises()
-    expect(w.get('a.headline').text()).toBe('Morning briefing')
+    expect(w.get('h3.headline').text()).toBe('Morning briefing')
   })
 
   it('on a 409 shows the briefing that already exists', async () => {
@@ -154,7 +155,7 @@ describe('NewsBriefing', () => {
     const w = await mountPanel()
     await btn(w, 'Generate briefing')!.trigger('click')
     await flushPromises()
-    expect(w.get('a.headline').text()).toBe('Morning briefing')
+    expect(w.get('h3.headline').text()).toBe('Morning briefing')
     expect(w.find('[role="alert"]').exists()).toBe(false)
   })
 
@@ -177,7 +178,7 @@ describe('NewsBriefing', () => {
     expect(w.get('[role="alert"]').text()).toContain('Cannot reach the server')
     await btn(w, 'Retry')!.trigger('click')
     await flushPromises()
-    expect(w.get('a.headline').text()).toBe('Morning briefing')
+    expect(w.get('h3.headline').text()).toBe('Morning briefing')
   })
 
   it('surfaces a latest-lookup failure other than 404', async () => {

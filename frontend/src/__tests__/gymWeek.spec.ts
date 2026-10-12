@@ -11,11 +11,11 @@ vi.mock('../api', async (orig) => {
   return {
     ...actual,
     tasksApi: { list: vi.fn(), create: vi.fn(), update: vi.fn(), complete: vi.fn(), remove: vi.fn() },
-    agentsApi: { planDay: vi.fn(), summarizeNote: vi.fn() },
+    agentsApi: { planDay: vi.fn(), summarizeNote: vi.fn(), storedPlan: vi.fn() },
     trainingApi: { week: vi.fn() },
   }
 })
-import { ApiError, tasksApi, trainingApi } from '../api'
+import { agentsApi, ApiError, tasksApi, trainingApi } from '../api'
 
 const today = localToday()
 const week = weekDates(today)
@@ -24,6 +24,7 @@ const gym = (o = {}) => ({ date: today, logged: false, lifts: ['Squat'], sets: 3
 
 beforeEach(() => {
   vi.resetAllMocks()
+  vi.mocked(agentsApi.storedPlan).mockResolvedValue(null)
   vi.mocked(tasksApi.list).mockResolvedValue([])
   useTasks().tasks.value = []
   useGymWeek().days.value = []

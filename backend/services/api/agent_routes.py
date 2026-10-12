@@ -1,5 +1,6 @@
 """Single-shot LLM actions. Routes load the data an action needs, make one model call, and check its output
 against the database before returning it, so a small model's invented ids never reach the UI."""
+import hashlib
 import uuid
 from collections.abc import Awaitable, Callable
 from typing import Literal
@@ -13,6 +14,8 @@ from sqlalchemy.orm import Session
 from backend.ai.llm import notes as notes_llm
 from backend.ai.llm import tasks as tasks_llm
 from backend.ai.llm import training as training_llm
+from backend.ai.llm.client import load_prompt
+from backend.crud import agent_results as results_crud
 from backend.crud import goals as goals_crud
 from backend.crud import notes as notes_crud
 from backend.crud import tasks as tasks_crud
@@ -32,10 +35,12 @@ class Params(BaseModel):
 
 class PlanDayParams(Params):
     date: dt.date | None = None
+    force: bool = False  # regenerate even when the stored plan is current
 
 
 class BalanceWeekParams(Params):
     date: dt.date | None = None  # any day in the week to balance
+    force: bool = False  # regenerate even when the stored result is current
 
 
 class NoteParams(Params):
@@ -126,6 +131,25 @@ def _note_text(note) -> str:
     return text
 
 
+# STORED RESULTS
+
+def _digest(prompt_name: str, message: str) -> str:
+    """Fingerprint of what the model reads, so a changed task, session or prompt regenerates the stored output."""
+    return hashlib.sha256(f"{load_prompt(prompt_name)}\n{message}".encode()).hexdigest()
+
+
+def _stored(db: Session, kind: str, period: date, digest: str, force: bool, model: type[BaseModel]):
+    row = results_crud.get_result(db, kind, period)
+    if row is None or force or row.source_hash != digest:
+        return None
+    return model.model_validate(row.payload)
+
+
+def _store(db: Session, kind: str, period: date, digest: str, result: BaseModel):
+    results_crud.save_result(db, kind, period, result.model_dump(mode="json"), digest)
+    return result
+
+
 # TASKS
 
 def _week_stats(tasks, day: date) -> WeekStats:
@@ -164,6 +188,9 @@ async def plan_day(db: Session, p: PlanDayParams) -> DayPlanResult:
         return DayPlanResult(date=day, items=[], week=week)
     goals = goals_crud.list_goals(db)
     message = _plan_message(day, week, goals, sorted(due.values(), key=lambda t: t.due_date))
+    digest = _digest("plan_day", message)
+    if (cached := _stored(db, "plan_day", day, digest, p.force, DayPlanResult)) is not None:
+        return cached
     plan = await guarded("tasks/plan_day", tasks_llm.plan_day(message, day))
     items, seen = [], set()
     for item in plan.items:
@@ -177,14 +204,15 @@ async def plan_day(db: Session, p: PlanDayParams) -> DayPlanResult:
     for check in plan.goal_checks:  # drop invented goal ids and repeats
         if check.goal_id in by_id:
             checked.setdefault(check.goal_id, GoalStatus(goal_id=check.goal_id, title=by_id[check.goal_id].title, on_track=check.on_track, note=check.note))
-    return DayPlanResult(date=day, items=items, week=week, status=plan.week_status, summary=plan.week_summary, goals=list(checked.values()))
+    result = DayPlanResult(date=day, items=items, week=week, status=plan.week_status, summary=plan.week_summary, goals=list(checked.values()))
+    return _store(db, "plan_day", day, digest, result)
 
 
 # TRAINING
 
 def _balance_message(day: date, days: list[BalanceDay], meet: Meet | None, program: str | None) -> str:
     lines = [
-        f"Balance my week. Today is {day.isoformat()}, only suggest changes for today or later.",
+        f"Balance my week. Today is {day.isoformat()}, only give advice for today or later.",
         f"Meet: {meet.title} on {meet.date}, {meet.days_left} days away." if meet else "Meet: no date set.",
         f"Program: {program}." if program else "Program: none active.",
         "Days:",
@@ -218,7 +246,11 @@ async def balance_week(db: Session, p: BalanceWeekParams) -> WeekBalanceResult:
     result = WeekBalanceResult(start=start, end=end, days=days, meet=meet, program=program)
     if not any(d.gym for d in days):  # nothing to balance tasks against
         return result
-    balance = await guarded("training/balance_week", training_llm.balance_week(_balance_message(day, days, meet, program), day))
+    message = _balance_message(day, days, meet, program)
+    digest = _digest("balance_week", message)
+    if (cached := _stored(db, "balance_week", start, digest, p.force, WeekBalanceResult)) is not None:
+        return cached
+    balance = await guarded("training/balance_week", training_llm.balance_week(message, day))
     result.status, result.summary = balance.status, balance.summary
     seen = set()
     for s in balance.suggestions:  # keep only real, upcoming days in this week, and each date's action once
@@ -226,7 +258,7 @@ async def balance_week(db: Session, p: BalanceWeekParams) -> WeekBalanceResult:
         if max(day, start) <= s.date <= end and s.action.strip() and key not in seen and len(result.suggestions) < 4:
             seen.add(key)
             result.suggestions.append(BalanceSuggestion(date=s.date, action=s.action.strip()))
-    return result
+    return _store(db, "balance_week", start, digest, result)
 
 
 # NOTES
@@ -255,6 +287,20 @@ HANDLERS: dict[tuple[str, str], tuple[type[Params], Callable[[Session, Params], 
     ("training", "balance_week"): (BalanceWeekParams, balance_week),
     ("notes", "summarize_note"): (SummarizeParams, summarize_note),
 }
+
+
+RESULT_KINDS: dict[str, type[BaseModel]] = {"plan_day": DayPlanResult, "balance_week": WeekBalanceResult}
+
+
+@router.get("/results/{kind}")
+def stored_result(kind: str, date: dt.date, db: Session = Depends(get_db)):
+    """The last stored output for the day (plan_day) or the week containing it (balance_week), or null. Never runs the model."""
+    model = RESULT_KINDS.get(kind)
+    if model is None:
+        raise HTTPException(404, f"Unknown result '{kind}'")
+    period = date - timedelta(days=date.weekday()) if kind == "balance_week" else date
+    row = results_crud.get_result(db, kind, period)
+    return model.model_validate(row.payload) if row else None
 
 
 @router.post("/{agent}/actions/{name}")

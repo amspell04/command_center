@@ -188,10 +188,10 @@ def test_message_says_when_there_is_no_meet_or_program(client, monkeypatch):
 
 def test_model_status_summary_and_suggestions_are_returned(client, monkeypatch):
     gym_week(client)
-    fake(monkeypatch, balance([Suggestion(date=d(3), action="Move the report to Thursday")], status="OVERLOADED", summary="Crowded."))
+    fake(monkeypatch, balance([Suggestion(date=d(3), action="Eat a carb-heavy meal before lifting and sleep 8 hours")], status="OVERLOADED", summary="Crowded."))
     body = run(client).json()
     assert (body["status"], body["summary"]) == ("OVERLOADED", "Crowded.")
-    assert body["suggestions"] == [{"date": d(3).isoformat(), "action": "Move the report to Thursday"}]
+    assert body["suggestions"] == [{"date": d(3).isoformat(), "action": "Eat a carb-heavy meal before lifting and sleep 8 hours"}]
 
 
 def test_suggestions_for_other_weeks_or_past_days_are_dropped(client, monkeypatch):
@@ -250,7 +250,14 @@ def test_week_balance_rejects_bad_output():
 def test_prompt_keeps_the_program_fixed_and_has_its_date_placeholder():
     prompt = load_prompt("balance_week")
     assert "{today}" in prompt
-    assert "Never suggest skipping or moving a gym session" in prompt
+    assert "never suggest skipping or moving a gym session" in prompt.lower()
+
+
+def test_prompt_does_not_ask_for_task_changes():
+    prompt = load_prompt("balance_week").lower()
+    assert "never suggest moving, rescheduling, deferring or dropping any task" in prompt
+    assert "task changes" not in prompt
+    assert "moving a task" not in prompt
 
 
 def test_prompt_asks_for_food_water_and_caffeine_guidance_with_a_caffeine_cap():

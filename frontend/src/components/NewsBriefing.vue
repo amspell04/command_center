@@ -66,16 +66,33 @@ onMounted(load)
     <p v-if="error" class="error" role="alert">{{ error }} <button v-if="!briefing" @click="load">Retry</button></p>
     <p v-else-if="generating" class="muted">Fetching feeds and summarizing, this can take a minute…</p>
 
-    <template v-if="briefing">
-      <RouterLink class="headline" :to="`/news/${briefing.id}`">{{ briefing.title }}</RouterLink>
-      <p class="summary" data-testid="briefing-summary">{{ briefing.summary }}</p>
-      <ul v-if="briefing.articles.length" class="links" aria-label="Articles covered" data-testid="briefing-links">
-        <li v-for="a in briefing.articles" :key="a.url">
-          <a v-if="/^https?:\/\//.test(a.url)" :href="a.url" target="_blank" rel="noopener noreferrer">{{ a.title }}</a>
-        </li>
-      </ul>
+    <article v-if="briefing" class="briefing">
       <small v-if="!hasToday" class="muted">From {{ briefing.date_created }}</small>
-    </template>
+      <h3 class="headline">{{ briefing.title }}</h3>
+      <p class="summary" data-testid="briefing-summary">{{ briefing.summary }}</p>
+      <div class="briefing__cols">
+        <p class="body" data-testid="briefing-body">{{ briefing.body }}</p>
+        <section v-if="briefing.quiz_section.length" class="quiz" data-testid="briefing-quiz">
+          <h4>Quiz</h4>
+          <ol>
+            <li v-for="(q, i) in briefing.quiz_section" :key="i">
+              <details>
+                <summary>{{ q.question }}</summary>
+                <p>{{ q.answer }}</p>
+              </details>
+            </li>
+          </ol>
+        </section>
+      </div>
+      <section v-if="briefing.articles.length" class="sources" data-testid="briefing-links">
+        <h4>Sources</h4>
+        <ul>
+          <li v-for="a in briefing.articles" :key="a.url">
+            <a v-if="/^https?:\/\//.test(a.url)" :href="a.url" target="_blank" rel="noopener noreferrer">{{ a.title }}</a>
+          </li>
+        </ul>
+      </section>
+    </article>
     <p v-else-if="!loading && !error" class="muted">No briefing yet.</p>
   </section>
 </template>
@@ -84,18 +101,67 @@ onMounted(load)
 .news {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
 }
 .headline {
-  font-weight: 600;
-}
-.links {
-  margin: 0 0 var(--space-2);
-  padding-left: var(--space-4);
-  font-size: var(--text-sm);
+  margin: 0;
+  font-size: var(--text-xl);
 }
 .summary {
-  margin: var(--space-2) 0;
+  margin: var(--space-2) 0 var(--space-3);
+  font-weight: 500;
   line-height: 1.6;
+}
+.briefing__cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+  gap: var(--space-5);
+  align-items: start;
+}
+.body {
+  margin: 0;
+  white-space: pre-wrap;
+  line-height: 1.7;
+}
+h4 {
+  margin: 0 0 var(--space-2);
+}
+.quiz ol,
+.sources ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.quiz ol {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.quiz li {
+  border-radius: var(--radius-lg);
+  background: var(--card-color);
+}
+.quiz summary {
+  padding: var(--space-2) var(--space-3);
+  cursor: pointer;
+  font-weight: 500;
+}
+.quiz details p {
+  margin: 0;
+  padding: 0 var(--space-3) var(--space-2);
+  color: var(--text-muted);
+}
+.sources {
+  margin-top: var(--space-4);
+}
+.sources li {
+  padding: var(--space-1) 0;
+  border-top: 1px solid var(--border-color);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+@media (max-width: 700px) {
+  .briefing__cols {
+    grid-template-columns: 1fr;
+  }
 }
 </style>
